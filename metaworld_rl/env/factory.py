@@ -38,6 +38,8 @@ def make_vec_env(cfg: EnvConfig) -> VectorEnv:
         mw_kwargs["render_mode"] = cfg.render_mode
     if cfg.use_one_hot_task_id:
         mw_kwargs["use_one_hot"] = True
+    if cfg.camera_name is not None:
+        mw_kwargs["camera_name"] = cfg.camera_name
 
     if cfg.benchmark.upper() == "MT10":
         if cfg.num_envs != MT10_NUM_ENVS:

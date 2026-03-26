@@ -38,6 +38,8 @@ class EnvConfig:
     render_mode: Literal["rgb_array", "human", None] = None
     """Set for evaluation videos (rgb_array). Training leaves None for speed."""
 
+    camera_name: str | None = None
+    """Override default MT10 camera (e.g. 'corner'). Only applies if render_mode is not None."""
 
 @dataclass
 class SacConfig:

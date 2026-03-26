@@ -32,6 +32,8 @@ def main() -> None:
     p.add_argument("--warmup-steps", type=int, default=5000, help="SAC random-action steps before learning")
     p.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging")
     p.add_argument("--project", type=str, default="tester", help="Project name for Weights & Biases")
+    p.add_argument("--frame_skip", type=int, default=1, help="Number of frames to skip (only for single-task envs)")
+    p.add_argument("--action_scale", type=float, default=1.0, help="Scaling factor for actions (only for single-task envs)")
     args = p.parse_args()
 
     if args.config:
@@ -60,7 +62,10 @@ def main() -> None:
         cfg.video_dir = str(ROOT / "runs" / args.project / args.benchmark / "videos")
         cfg.logging.plot_dir = str(ROOT / "runs" / args.project / args.benchmark / "plots")
         cfg.logging.history_csv = str(ROOT / "runs" / args.project / args.benchmark / "history.csv")
-    
+    if args.frame_skip is not None:
+        cfg.env.frame_skip = args.frame_skip
+    if args.action_scale is not None:
+        cfg.env.action_scale = args.action_scale
     out = ROOT / "runs" / args.project / args.benchmark / "last_config.yaml"
     save_train_config(cfg, out)
     print(f"Wrote resolved config to {out}")
