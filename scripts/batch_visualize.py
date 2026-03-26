@@ -17,20 +17,24 @@ def main():
     if not checkpoints_dir.exists():
         print(f"Error: Checkpoints directory not found: {checkpoints_dir}")
         sys.exit(1)
-    
-    tasks = [d.name for d in checkpoints_dir.iterdir() if d.is_dir() and (d / "checkpoints" / "final.pt").exists()]
-    
-    if not tasks:
-        print(f"No trained models found in {checkpoints_dir}")
+
+    # New directory structure:
+    # runs/<project>/<benchmark>/<algo>_fs<frame_skip>_as<action_scale>_seed<seed>/checkpoints/final.pt
+    checkpoint_files = sorted(checkpoints_dir.glob("**/checkpoints/final.pt"))
+    if not checkpoint_files:
+        print(f"No trained models found under {checkpoints_dir}")
         sys.exit(1)
-    
-    print(f"Found {len(tasks)} trained models: {', '.join(tasks)}")
+
+    task_names = [cp.parent.parent.name for cp in checkpoint_files]
+    print(f"Found {len(task_names)} trained models: {', '.join(task_names)}")
     print()
     
     output_base = ROOT / "visualizations"
     
-    for task in sorted(tasks):
-        checkpoint = checkpoints_dir / task / "checkpoints" / "final.pt"
+    for checkpoint in checkpoint_files:
+        # checkpoint/.../<run_dir>/checkpoints/final.pt -> take <run_dir>
+        run_dir = checkpoint.parent.parent
+        task = run_dir.name
         output_dir = output_base / task
         
         print(f"{'='*60}")

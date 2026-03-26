@@ -6,19 +6,19 @@
 
 ```bash
 # Record policy video for a single trained model
-python3.10 scripts/visualize.py --checkpoint runs/metaworld_rl/coffee/checkpoints/final.pt
+python3.10 scripts/visualize.py --checkpoint runs/metaworld_rl/coffee/sac_fs1_as1p0_seed0/checkpoints/final.pt
 
 # Just frame-skip analysis (no video recording)
-python3.10 scripts/visualize.py --checkpoint runs/metaworld_rl/coffee/checkpoints/final.pt --mode frame_skip
+python3.10 scripts/visualize.py --checkpoint runs/metaworld_rl/coffee/sac_fs1_as1p0_seed0/checkpoints/final.pt --mode frame_skip
 
 # Just policy video (no frame-skip analysis)
-python3.10 scripts/visualize.py --checkpoint runs/metaworld_rl/coffee/checkpoints/final.pt --mode video
+python3.10 scripts/visualize.py --checkpoint runs/metaworld_rl/coffee/sac_fs1_as1p0_seed0/checkpoints/final.pt --mode video
 
 # Visualize all trained models with batch script
 python3.10 scripts/batch_visualize.py
 
 # Custom output and parameters
-python3.10 scripts/visualize.py --checkpoint runs/metaworld_rl/coffee/checkpoints/final.pt \
+python3.10 scripts/visualize.py --checkpoint runs/metaworld_rl/coffee/sac_fs1_as1p0_seed0/checkpoints/final.pt \
     --output-dir my_visualizations --max-steps 500 --fps 30
 ```
 
@@ -96,7 +96,7 @@ Frame-skip testing validates that actions repeat correctly by:
 **Visualize coffee task with extended video:**
 ```bash
 python3.10 scripts/visualize.py \
-    --checkpoint runs/metaworld_rl/coffee/checkpoints/final.pt \
+    --checkpoint runs/metaworld_rl/coffee/sac_fs1_as1p0_seed0/checkpoints/final.pt \
     --max-steps 500 --fps 30
 ```
 
@@ -108,14 +108,14 @@ python3.10 scripts/batch_visualize.py
 **Frame-skip testing only:**
 ```bash
 python3.10 scripts/visualize.py \
-    --checkpoint runs/metaworld_rl/button/checkpoints/final.pt \
+    --checkpoint runs/metaworld_rl/button/sac_fs1_as1p0_seed0/checkpoints/final.pt \
     --mode frame_skip --output-dir frame_skip_analysis
 ```
 
 **CPU-only inference:**
 ```bash
 python3.10 scripts/visualize.py \
-    --checkpoint runs/metaworld_rl/door/checkpoints/final.pt \
+    --checkpoint runs/metaworld_rl/door/sac_fs1_as1p0_seed0/checkpoints/final.pt \
     --device cpu
 ```
 

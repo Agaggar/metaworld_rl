@@ -13,7 +13,13 @@ def plot_history(history: list[dict[str, float]], out_dir: Path, prefix: str = "
     if not history:
         return
     out_dir.mkdir(parents=True, exist_ok=True)
-    keys = [k for k in history[0].keys() if k != "step"]
+    # Plot every metric that ever appears in the history (train and eval share the same list).
+    key_set = set()
+    for h in history:
+        for k in h.keys():
+            if k != "step":
+                key_set.add(k)
+    keys = sorted(key_set)
     if not keys:
         return
 

@@ -32,8 +32,8 @@ def main() -> None:
     p.add_argument("--warmup-steps", type=int, default=5000, help="SAC random-action steps before learning")
     p.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging")
     p.add_argument("--project", type=str, default="tester", help="Project name for Weights & Biases")
-    p.add_argument("--frame_skip", type=int, default=1, help="Number of frames to skip (only for single-task envs)")
-    p.add_argument("--action_scale", type=float, default=1.0, help="Scaling factor for actions (only for single-task envs)")
+    p.add_argument("--frame-skip", type=int, default=1, help="Number of frames to skip (only for single-task envs)")
+    p.add_argument("--action-scale", type=float, default=1.0, help="Scaling factor for actions (only for single-task envs)")
     args = p.parse_args()
 
     if args.config:
@@ -57,16 +57,41 @@ def main() -> None:
         cfg.logging.use_wandb = True
     if args.project is not None:
         cfg.logging.wandb_project = args.project
-        cfg.logging.wandb_run_name = args.benchmark
-        cfg.checkpoint_dir = str(ROOT / "runs" / args.project / args.benchmark / "checkpoints")
-        cfg.video_dir = str(ROOT / "runs" / args.project / args.benchmark / "videos")
-        cfg.logging.plot_dir = str(ROOT / "runs" / args.project / args.benchmark / "plots")
-        cfg.logging.history_csv = str(ROOT / "runs" / args.project / args.benchmark / "history.csv")
+        cfg.logging.wandb_run_name = args.benchmark + "_" + cfg.algorithm + "_" + str(args.frame_skip) + "_" + str(args.action_scale)
+        # Ensure checkpoints don't get overwritten across ablations.
+        def _float_tag(x: float) -> str:
+            # Keep tags filename-friendly and stable across common float values like 0.5, 1.0, 2.0.
+            return str(x).replace("-", "m").replace(".", "p")
+
+        run_dir = (
+            ROOT
+            / "runs"
+            / args.project
+            / args.benchmark
+            / f"{cfg.algorithm}_fs{args.frame_skip}_as{_float_tag(args.action_scale)}_seed{cfg.seed}"
+        )
+        cfg.checkpoint_dir = str(run_dir / "checkpoints")
+        cfg.video_dir = str(run_dir / "videos")
+        cfg.logging.plot_dir = str(run_dir / "plots")
+        cfg.logging.history_csv = str(run_dir / "history.csv")
     if args.frame_skip is not None:
-        cfg.env.frame_skip = args.frame_skip
+        cfg.env.frame_skip = int(args.frame_skip)
     if args.action_scale is not None:
-        cfg.env.action_scale = args.action_scale
+        cfg.env.action_scale = float(args.action_scale)
     out = ROOT / "runs" / args.project / args.benchmark / "last_config.yaml"
+    if args.project is not None:
+        # Mirror the checkpoint directory uniqueness to the config snapshot path too.
+        def _float_tag(x: float) -> str:
+            return str(x).replace("-", "m").replace(".", "p")
+
+        out = (
+            ROOT
+            / "runs"
+            / args.project
+            / args.benchmark
+            / f"{cfg.algorithm}_fs{args.frame_skip}_as{_float_tag(args.action_scale)}_seed{cfg.seed}"
+            / "last_config.yaml"
+        )
     save_train_config(cfg, out)
     print(f"Wrote resolved config to {out}")
 

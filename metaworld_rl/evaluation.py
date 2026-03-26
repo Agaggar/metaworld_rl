@@ -31,7 +31,6 @@ def evaluate_vector_env(
     env,
     agent: "SacAgent | PpoAgent",
     device: torch.device,
-    algorithm: str,
     num_envs: int,
     max_steps: int = 500,
 ) -> dict[str, float]:
@@ -43,14 +42,21 @@ def evaluate_vector_env(
     active = np.ones(num_envs, dtype=bool)
     steps = 0
 
+    def _actions_from_agent(obs_t: torch.Tensor) -> torch.Tensor:
+        """Extract actions from agent.act() outputs.
+
+        SAC returns actions tensor.
+        PPO returns (actions, log_probs, values).
+        """
+        out = agent.act(obs_t, deterministic=True)
+        if isinstance(out, tuple):
+            return out[0]
+        return out
+
     while active.any() and steps < max_steps:
         obs_t = torch.as_tensor(obs, dtype=torch.float32, device=device)
         with torch.no_grad():
-            if algorithm == "sac":
-                actions = agent.act(obs_t, deterministic=True).cpu().numpy()
-            else:
-                actions, _, _, _ = agent.act(obs_t, deterministic=True)
-                actions = actions.cpu().numpy()
+            actions = _actions_from_agent(obs_t).cpu().numpy()
 
         obs, rewards, term, trunc, infos = env.step(actions)
         returns += rewards * active.astype(np.float64)
@@ -73,7 +79,6 @@ def record_video(
     env,
     agent: "SacAgent | PpoAgent",
     device: torch.device,
-    algorithm: str,
     path: str | Path,
     max_steps: int = 200,
     fps: int = 20,
@@ -85,14 +90,16 @@ def record_video(
     obs, _ = env.reset(seed=0)
     frames: list[np.ndarray] = []
 
+    def _actions_from_agent(obs_t: torch.Tensor) -> torch.Tensor:
+        out = agent.act(obs_t, deterministic=True)
+        if isinstance(out, tuple):
+            return out[0]
+        return out
+
     for _ in range(max_steps):
         obs_t = torch.as_tensor(obs, dtype=torch.float32, device=device)
         with torch.no_grad():
-            if algorithm == "sac":
-                actions = agent.act(obs_t, deterministic=True).cpu().numpy()
-            else:
-                actions, _, _, _ = agent.act(obs_t, deterministic=True)
-                actions = actions.cpu().numpy()
+            actions = _actions_from_agent(obs_t).cpu().numpy()
 
         obs, _, term, trunc, _ = env.step(actions)
         try:

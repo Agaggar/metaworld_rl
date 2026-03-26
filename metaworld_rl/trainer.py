@@ -77,6 +77,11 @@ class Trainer:
         cfg = self.cfg
         obs, _ = self.env.reset(seed=cfg.seed)
 
+        # Use "next_*_step" scheduling instead of modulo checks so PPO doesn't skip
+        # eval/checkpoint triggers due to larger step jumps per update.
+        next_eval_step = cfg.logging.eval_interval
+        next_ckpt_step = cfg.logging.checkpoint_interval
+
         while self.global_step < cfg.total_timesteps:
             if self.algorithm == "sac":
                 self._train_step_sac(obs)
@@ -89,12 +94,15 @@ class Trainer:
                 if self.algorithm == "ppo" or int(last["step"]) % cfg.logging.log_interval == 0:
                     self._log_console(last)
 
-            if self.global_step % cfg.logging.eval_interval == 0 and self.global_step > 0:
+            while (
+                self.global_step >= next_eval_step
+                and next_eval_step <= cfg.total_timesteps
+                and next_eval_step > 0
+            ):
                 metrics = evaluate_vector_env(
                     self.env,
                     self.agent,
                     self.device,
-                    self.algorithm,
                     self.num_envs,
                 )
                 self._log_eval(metrics)
@@ -104,9 +112,15 @@ class Trainer:
                         Path(cfg.logging.plot_dir),
                         prefix=f"step_{self.global_step}",
                     )
+                next_eval_step += cfg.logging.eval_interval
 
-            if self.global_step % cfg.logging.checkpoint_interval == 0 and self.global_step > 0:
+            while (
+                self.global_step >= next_ckpt_step
+                and next_ckpt_step <= cfg.total_timesteps
+                and next_ckpt_step > 0
+            ):
                 self._save_checkpoint()
+                next_ckpt_step += cfg.logging.checkpoint_interval
 
         self._save_checkpoint(final=True)
         if cfg.logging.use_wandb:
@@ -213,6 +227,14 @@ class Trainer:
         if self.cfg.logging.use_wandb:
             wandb.log({f"eval/{k}": v for k, v in metrics.items()})
         self._append_csv(self.cfg.logging.history_csv, metrics)
+
+        # Keep eval metrics in-memory too, so local plot_history() can render them.
+        step_val = float(self.global_step)
+        if self.history and self.history[-1].get("step") == step_val:
+            # Merge into the most recent training row (evaluation happens right after training).
+            self.history[-1].update(metrics)
+        else:
+            self.history.append({"step": step_val, **metrics})
 
     def _append_csv(self, path: str, metrics: dict[str, float]) -> None:
         p = Path(path)
