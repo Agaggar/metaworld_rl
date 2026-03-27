@@ -28,7 +28,7 @@ import wandb
 
 
 FRAME_SKIP_VALUES = [1, 2, 5, 10]
-ACTION_SCALE_VALUES = [0.5, 1.0, 2.0]
+ACTION_SCALE_VALUES = [0.1, 0.25, 1.0, 5.0]
 
 # Env ids as stored in metaworld_rl.config.name_to_env_name(...)
 ENV_COLS = [
@@ -225,9 +225,10 @@ def main() -> None:
     }
 
     action_colors = {
-        0.5: "#6faee0",
+        0.1: "#6faee0",
+        0.25: "#eea765",
         1.0: "#ea86a7",
-        2.0: "#86d894",
+        5.0: "#86d894",
     }
 
     fig, axes = plt.subplots(nrows=3, ncols=6, figsize=(22, 12))
@@ -259,9 +260,9 @@ def main() -> None:
             return None
         return sum(vals) / len(vals)
 
-    eval_as_fixed = 2.0
+    eval_as_fixed = 1.0
 
-    # Row 0: action_scale fixed at 2.0; vary frame_skip.
+    # Row 0: action_scale fixed at 1.0; vary frame_skip.
     for col_idx, (env_id, env_short) in enumerate(ENV_COLS, start=1):
         ax = axes[0, col_idx]
         for fs in FRAME_SKIP_VALUES:
@@ -401,11 +402,11 @@ def main() -> None:
 
     for c in range(6):
         axes[2, c].set_xlabel("step")
-        axes[0, c].set_ylabel("reward, as fixed at 2.0")
+        axes[0, c].set_ylabel("reward, as fixed at 1.0")
         axes[1, c].set_ylabel("reward, fs fixed at 1")
         axes[2, c].set_ylabel("reward, best fs, as")
 
-    fig.suptitle("Reward for SAC: frame_skip, action_scale, and best)", fontsize=16)
+    fig.suptitle("Reward for SAC: frame_skip, action_scale, and best", fontsize=16)
     fig.tight_layout()
     out_path = args.out
     plt.savefig(out_path, dpi=140)
