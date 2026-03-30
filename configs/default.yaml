@@ -11,7 +11,7 @@ video_dir: runs/tester/videos
 
 env:
   benchmark: MT10 # or specify
-  num_envs: 10
+  num_envs: 1
   seed: 0
   action_scale: 1.0
   normalize_observations: false
@@ -47,7 +47,7 @@ ppo:
   minibatch_size: 256
 
 logging:
-  use_wandb: true
+  use_wandb: false
   wandb_entity: null
   log_interval: 100
   eval_interval: 20000

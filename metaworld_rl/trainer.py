@@ -134,6 +134,7 @@ class Trainer:
         reward_sums = np.zeros((self.num_envs,), dtype=np.float32)
         span_steps = np.zeros((self.num_envs,), dtype=np.int32)
         segment_active = np.zeros((self.num_envs,), dtype=bool)
+        samples_before = self.global_sample_step
 
         while True:
             obs_t = torch.as_tensor(obs, dtype=torch.float32, device=self.device)
@@ -181,7 +182,7 @@ class Trainer:
 
             if self.global_sim_step >= cfg.total_timesteps:
                 break
-            if self.global_sample_step > 0:
+            if self.global_sample_step > samples_before:
                 break
 
         metrics: dict[str, float] = {}
