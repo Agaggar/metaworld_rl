@@ -20,9 +20,6 @@ class EnvConfig:
     """Parallel actors. For MT10 this must match the benchmark (10) unless you use a single-task name."""
 
     seed: int = 0
-    frame_skip: int = 1
-    """Repeat the same action this many env steps; rewards are summed."""
-
     action_scale: float = 1.0
     """Multiply policy actions before clip to [-1, 1]. Values <1 reduce effective motion / 'speed'."""
 
@@ -105,7 +102,14 @@ class LoggingConfig:
 @dataclass
 class TrainConfig:
     algorithm: Literal["sac", "ppo"] = "sac"
+    target_simulator_timesteps: int = 3_000_000
+    """Target total simulator timesteps (e.g. sum of all env.step() repetitions)."""
+
+    sample_every: int = 1
+    """Commit one learning transition every this many simulator control steps."""
+
     total_timesteps: int = 1_000_000
+    """Target simulator timesteps for this run (used directly by trainer loop)."""
     device: str = "cuda"
     env: EnvConfig = field(default_factory=EnvConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
@@ -136,8 +140,15 @@ def config_from_dict(d: dict[str, Any]) -> TrainConfig:
         return cls(**kwargs)  # type: ignore[arg-type]
 
     b = TrainConfig()
+    sample_every = d.get("sample_every", b.sample_every)
+    # Backward compatibility for older configs that still define env.frame_skip.
+    raw_env = d.get("env", {})
+    if isinstance(raw_env, dict) and "frame_skip" in raw_env and "sample_every" not in d:
+        sample_every = raw_env["frame_skip"]
     return TrainConfig(
         algorithm=d.get("algorithm", b.algorithm),
+        target_simulator_timesteps=d.get("target_simulator_timesteps", b.target_simulator_timesteps),
+        sample_every=sample_every,
         total_timesteps=d.get("total_timesteps", b.total_timesteps),
         device=d.get("device", b.device),
         env=sub(EnvConfig, "env", b.env),

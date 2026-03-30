@@ -69,7 +69,7 @@ class SacAgent:
             return a
 
     def update(self, batch: tuple[torch.Tensor, ...]) -> dict[str, float]:
-        obs, actions, rewards, next_obs, dones = batch
+        obs, actions, rewards, next_obs, dones, discounts = batch
         alpha = self.log_alpha.exp() if self.auto_alpha else torch.tensor(
             self.alpha, device=self.device
         )
@@ -79,7 +79,7 @@ class SacAgent:
             q1n = self.q1_t(next_obs, next_a)
             q2n = self.q2_t(next_obs, next_a)
             qn = torch.min(q1n, q2n)
-            target_q = rewards + (1 - dones) * self.gamma * (qn - alpha * next_log_pi)
+            target_q = rewards + (1 - dones) * discounts * (qn - alpha * next_log_pi)
 
         q1 = self.q1(obs, actions)
         q2 = self.q2(obs, actions)

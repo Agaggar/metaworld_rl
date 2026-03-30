@@ -21,6 +21,7 @@ class ReplayBuffer:
         self.actions = np.zeros((capacity, act_dim), dtype=np.float32)
         self.rewards = np.zeros((capacity, 1), dtype=np.float32)
         self.dones = np.zeros((capacity, 1), dtype=np.float32)
+        self.discounts = np.zeros((capacity, 1), dtype=np.float32)
         self.ptr = 0
         self.size = 0
 
@@ -31,6 +32,7 @@ class ReplayBuffer:
         rewards: np.ndarray,
         next_obs: np.ndarray,
         dones: np.ndarray,
+        discounts: np.ndarray,
     ) -> None:
         """Add transitions from a vector env step: shapes (n_envs, ...)."""
         n = obs.shape[0]
@@ -40,6 +42,7 @@ class ReplayBuffer:
             self.rewards[self.ptr, 0] = rewards[i]
             self.next_obs[self.ptr] = next_obs[i]
             self.dones[self.ptr, 0] = float(dones[i])
+            self.discounts[self.ptr, 0] = float(discounts[i])
             self.ptr = (self.ptr + 1) % self.capacity
             self.size = min(self.size + 1, self.capacity)
 
@@ -51,4 +54,5 @@ class ReplayBuffer:
             torch.as_tensor(self.rewards[idx], device=self.device),
             torch.as_tensor(self.next_obs[idx], device=self.device),
             torch.as_tensor(self.dones[idx], device=self.device),
+            torch.as_tensor(self.discounts[idx], device=self.device),
         )

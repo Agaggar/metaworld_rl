@@ -1,4 +1,4 @@
-"""Vector-env wrappers: frame skip, action scaling, observation normalization."""
+"""Vector-env wrappers: action scaling and observation normalization."""
 
 from __future__ import annotations
 
@@ -32,26 +32,6 @@ class RunningMeanStd:
 
     def normalize(self, x: npt.NDArray[np.floating]) -> npt.NDArray[np.float32]:
         return ((x - self.mean) / np.sqrt(self.var + 1e-8)).astype(np.float32)
-
-
-class VectorFrameSkip(VectorWrapper):
-    """Repeat the same action for `skip` env steps; rewards are summed."""
-
-    def __init__(self, env: VectorEnv, skip: int) -> None:
-        if skip < 1:
-            raise ValueError("frame_skip must be >= 1")
-        self._skip = skip
-        super().__init__(env)
-
-    def step(self, actions):
-        obs, r, term, trunc, infos = self.env.step(actions)
-        total_r = r.astype(np.float64, copy=True)
-        for _ in range(self._skip - 1):
-            if np.any(term) or np.any(trunc):
-                break
-            obs, r, term, trunc, infos = self.env.step(actions)
-            total_r += r
-        return obs, total_r.astype(np.float32), term, trunc, infos
 
 
 class VectorActionScale(VectorWrapper):

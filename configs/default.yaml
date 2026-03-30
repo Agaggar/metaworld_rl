@@ -1,6 +1,7 @@
 # Default training run — edit or pass overrides via scripts/train.py
 algorithm: sac
 total_timesteps: 500000
+sample_every: 1
 device: cuda:2
 seed: 0
 reward_scale: 1.0
@@ -12,7 +13,6 @@ env:
   benchmark: MT10 # or specify
   num_envs: 10
   seed: 0
-  frame_skip: 1
   action_scale: 1.0
   normalize_observations: false
   use_one_hot_task_id: false

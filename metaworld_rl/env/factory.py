@@ -12,7 +12,6 @@ from gymnasium.vector import VectorEnv
 from metaworld_rl.config import EnvConfig
 from metaworld_rl.env.wrappers import (
     VectorActionScale,
-    VectorFrameSkip,
     VectorObservationNormalize,
 )
 
@@ -25,7 +24,7 @@ def _make_single_task_env(task_name: str, seed: int | None, **mw_kwargs) -> gym.
 
 
 def make_vec_env(cfg: EnvConfig) -> VectorEnv:
-    """Create a vectorized MetaWorld env and apply frame-skip / scaling / obs norm wrappers.
+    """Create a vectorized MetaWorld env and apply action scaling / obs norm wrappers.
 
     For ``benchmark=='MT10'``, the underlying vector env always has 10 sub-envs (one per task).
     ``num_envs`` is ignored in that case (a warning is emitted if it is not 10).
@@ -68,8 +67,6 @@ def make_vec_env(cfg: EnvConfig) -> VectorEnv:
 
     assert isinstance(vec, VectorEnv)
 
-    if cfg.frame_skip > 1:
-        vec = VectorFrameSkip(vec, cfg.frame_skip)
     if cfg.action_scale != 1.0:
         vec = VectorActionScale(vec, cfg.action_scale)
     if cfg.normalize_observations:

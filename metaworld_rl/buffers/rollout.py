@@ -25,6 +25,9 @@ class RolloutBuffer:
         self.rewards = np.zeros((n,), dtype=np.float32)
         self.values = np.zeros((n,), dtype=np.float32)
         self.dones = np.zeros((n,), dtype=np.float32)
+        self.next_values = np.zeros((n,), dtype=np.float32)
+        self.delta_ts = np.zeros((n,), dtype=np.float32)
+        self.env_ids = np.zeros((n,), dtype=np.int32)
         self.pos = 0
 
     def add(
@@ -35,6 +38,9 @@ class RolloutBuffer:
         rewards: np.ndarray,
         values: np.ndarray,
         dones: np.ndarray,
+        next_values: np.ndarray,
+        delta_ts: np.ndarray,
+        env_ids: np.ndarray,
     ) -> None:
         n = obs.shape[0]
         sl = slice(self.pos, self.pos + n)
@@ -44,6 +50,9 @@ class RolloutBuffer:
         self.rewards[sl] = rewards
         self.values[sl] = values
         self.dones[sl] = dones
+        self.next_values[sl] = next_values
+        self.delta_ts[sl] = delta_ts
+        self.env_ids[sl] = env_ids
         self.pos += n
 
     def full(self) -> bool:
@@ -54,29 +63,29 @@ class RolloutBuffer:
 
     def compute_returns(
         self,
-        last_values: np.ndarray,
         gamma: float,
         gae_lambda: float,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """GAE-Lambda advantages and returns. last_values: (num_envs,) bootstrap after last step."""
-        T, N = self.n_steps, self.num_envs
-        rewards = self.rewards.reshape(T, N)
-        values = self.values.reshape(T, N)
-        dones = self.dones.reshape(T, N)
-        advantages = np.zeros((T, N), dtype=np.float32)
-        last_gae = np.zeros(N, dtype=np.float32)
-        for t in reversed(range(T)):
-            if t == T - 1:
-                next_v = last_values
-            else:
-                next_v = values[t + 1]
-            next_non_terminal = 1.0 - dones[t]
-            delta = rewards[t] + gamma * next_v * next_non_terminal - values[t]
-            last_gae = delta + gamma * gae_lambda * next_non_terminal * last_gae
-            advantages[t] = last_gae
+        """GAE-Lambda with variable transition spans (delta_ts)."""
+        n = self.pos
+        advantages = np.zeros((n,), dtype=np.float32)
+        env_last_gae = np.zeros((self.num_envs,), dtype=np.float32)
+        for idx in range(n - 1, -1, -1):
+            env_id = int(self.env_ids[idx])
+            dt = float(self.delta_ts[idx])
+            non_terminal = 1.0 - self.dones[idx]
+            gamma_pow = gamma**dt
+            gl_pow = (gamma * gae_lambda) ** dt
+            delta = (
+                self.rewards[idx]
+                + gamma_pow * self.next_values[idx] * non_terminal
+                - self.values[idx]
+            )
+            env_last_gae[env_id] = delta + gl_pow * non_terminal * env_last_gae[env_id]
+            advantages[idx] = env_last_gae[env_id]
 
-        adv_flat = advantages.reshape(-1)
-        ret_flat = adv_flat + self.values
+        adv_flat = advantages
+        ret_flat = adv_flat + self.values[:n]
         return adv_flat, ret_flat
 
     def batches(self, minibatch_size: int, advantages: np.ndarray, returns: np.ndarray):

@@ -5,9 +5,9 @@ Create a 6x3 matplotlib grid comparing SAC ablations from W&B runs.
 Grid layout (columns x rows):
 - Col 0: average across envs in that row (cols 1-5)
 - Col 1-5: individual benchmark envs
-- Row 0: action_scale fixed at 1.0, vary frame_skip
-- Row 1: frame_skip fixed at 1, vary action_scale
-- Row 2: each subplot title shows the best (frame_skip, action_scale)
+- Row 0: action_scale fixed at 1.0, vary sample_every
+- Row 1: sample_every fixed at 1, vary action_scale
+- Row 2: each subplot title shows the best (sample_every, action_scale)
         combo by last eval value (eval/episode_return_mean)
 
 Uses only matplotlib.pyplot for visualization.
@@ -27,7 +27,7 @@ import matplotlib.pyplot as plt
 import wandb
 
 
-FRAME_SKIP_VALUES = [1, 2, 5, 10]
+SAMPLE_EVERY_VALUES = [1, 2, 5, 10]
 ACTION_SCALE_VALUES = [0.1, 0.25, 1.0, 5.0]
 
 # Env ids as stored in metaworld_rl.config.name_to_env_name(...)
@@ -60,8 +60,9 @@ def _get_nested(config: dict[str, Any], path: str) -> Any:
     Best-effort nested getter for W&B config.
 
     Supports both:
-    - nested dict: config["env"]["frame_skip"]
-    - flattened keys: config["env.frame_skip"]
+    - top-level config["sample_every"]
+    - nested dict: config["env"]["frame_skip"] (legacy fallback)
+    - flattened keys: config["env.frame_skip"] (legacy fallback)
     """
     if "." in path:
         first, rest = path.split(".", 1)
@@ -167,7 +168,7 @@ def main() -> None:
 
     env_names = {e for e, _ in ENV_COLS}
 
-    # Group runs by (env_id, frame_skip, action_scale).
+    # Group runs by (env_id, sample_every, action_scale).
     run_groups: dict[tuple[str, int, float], list[wandb.apis.public.Run]] = defaultdict(list)
     n = 0
     for run in runs:
@@ -183,7 +184,9 @@ def main() -> None:
         if env_id not in env_names:
             continue
 
-        fs = _get_cfg(run, "env.frame_skip")
+        fs = _get_cfg(run, "sample_every")
+        if fs is None:
+            fs = _get_cfg(run, "env.frame_skip")
         ascale = _get_cfg(run, "env.action_scale")
         try:
             fs_int = int(fs)
@@ -193,13 +196,13 @@ def main() -> None:
         asnap = _snap_action_scale(ascale)
         if asnap is None:
             continue
-        if fs_int not in FRAME_SKIP_VALUES or asnap not in ACTION_SCALE_VALUES:
+        if fs_int not in SAMPLE_EVERY_VALUES or asnap not in ACTION_SCALE_VALUES:
             continue
 
         run_groups[(env_id, fs_int, asnap)].append(run)
 
     # Pre-fetch all curves we need.
-    # Each (env_id, frame_skip, action_scale) maps to {step: [values...]},
+    # Each (env_id, sample_every, action_scale) maps to {step: [values...]},
     # so we can compute mean/std at each step across runs.
     curves: dict[tuple[str, int, float], dict[int, list[float]]] = {}
     for (env_id, fs, ascale), rlist in run_groups.items():
@@ -217,7 +220,7 @@ def main() -> None:
         curves[(env_id, fs, ascale)] = combined
 
     # Pastel colors (slightly darker than earlier wandb-default-ish pastels).
-    frame_colors = {
+    sample_every_colors = {
         1: "#6ea3c9",   # muted blue
         2: "#ee7f9c",   # muted pink
         5: "#eea765",   # muted peach
@@ -262,21 +265,21 @@ def main() -> None:
 
     eval_as_fixed = 1.0
 
-    # Row 0: action_scale fixed at 1.0; vary frame_skip.
+    # Row 0: action_scale fixed at 1.0; vary sample_every.
     for col_idx, (env_id, env_short) in enumerate(ENV_COLS, start=1):
         ax = axes[0, col_idx]
-        for fs in FRAME_SKIP_VALUES:
+        for fs in SAMPLE_EVERY_VALUES:
             step_dict = curves.get((env_id, fs, eval_as_fixed), {})
             if not step_dict:
                 continue
-            plot_step_dict(ax, step_dict, frame_colors[fs], label=f"fs={fs}")
+            plot_step_dict(ax, step_dict, sample_every_colors[fs], label=f"se={fs}")
         ax.grid(True, alpha=0.3)
-        if len(FRAME_SKIP_VALUES) > 1:
+        if len(SAMPLE_EVERY_VALUES) > 1:
             ax.legend(loc="best", fontsize=8)
 
-    # Row 0, col 0: average across envs for each frame_skip.
+    # Row 0, col 0: average across envs for each sample_every.
     ax_avg = axes[0, 0]
-    for fs in FRAME_SKIP_VALUES:
+    for fs in SAMPLE_EVERY_VALUES:
         per_env: list[dict[int, list[float]]] = []
         for env_id, _ in ENV_COLS:
             step_dict = curves.get((env_id, fs, eval_as_fixed), {})
@@ -287,18 +290,18 @@ def main() -> None:
         steps, means, stds = _average_step_dicts(per_env)
         if not steps:
             continue
-        ax_avg.plot(steps, means, color=frame_colors[fs], linewidth=2, label=f"fs={fs}")
+        ax_avg.plot(steps, means, color=sample_every_colors[fs], linewidth=2, label=f"se={fs}")
         ax_avg.fill_between(
             steps,
             [m - s for m, s in zip(means, stds)],
             [m + s for m, s in zip(means, stds)],
-            color=frame_colors[fs],
+            color=sample_every_colors[fs],
             alpha=0.2,
         )
     ax_avg.grid(True, alpha=0.3)
     ax_avg.legend(loc="best", fontsize=9)
 
-    # Row 1: frame_skip fixed at 1; vary action_scale.
+    # Row 1: sample_every fixed at 1; vary action_scale.
     for col_idx, (env_id, _env_short) in enumerate(ENV_COLS, start=1):
         ax = axes[1, col_idx]
         for ascale in ACTION_SCALE_VALUES:
@@ -334,11 +337,11 @@ def main() -> None:
     ax_avg.grid(True, alpha=0.3)
     ax_avg.legend(loc="best", fontsize=9)
 
-    # Row 2: best (frame_skip, action_scale) by last eval mean.
+    # Row 2: best (sample_every, action_scale) by last eval mean.
     # Col 0: best across env-average.
     best_fs_as_avg: tuple[int, float] | None = None
     best_last_avg = float("-inf")
-    for fs in FRAME_SKIP_VALUES:
+    for fs in SAMPLE_EVERY_VALUES:
         for ascale in ACTION_SCALE_VALUES:
             per_env: list[dict[int, list[float]]] = []
             for env_id, _ in ENV_COLS:
@@ -375,14 +378,14 @@ def main() -> None:
             alpha=0.2,
         )
         ax.grid(True, alpha=0.3)
-        ax.set_title(f"best avg fs={best_fs}, as={best_as}")
+        ax.set_title(f"best avg se={best_fs}, as={best_as}")
 
     # Per-env best.
     for col_idx, (env_id, env_short) in enumerate(ENV_COLS, start=1):
         ax = axes[2, col_idx]
         best_pair: tuple[int, float] | None = None
         best_last = float("-inf")
-        for fs in FRAME_SKIP_VALUES:
+        for fs in SAMPLE_EVERY_VALUES:
             for ascale in ACTION_SCALE_VALUES:
                 step_dict = curves.get((env_id, fs, ascale), {})
                 lm = last_mean(step_dict)
@@ -396,17 +399,17 @@ def main() -> None:
             best_fs, best_as = best_pair
             step_dict = curves.get((env_id, best_fs, best_as), {})
             if step_dict:
-                plot_step_dict(ax, step_dict, color=frame_colors[best_fs], label=None, alpha=0.2)
-            ax.set_title(f"best fs={best_fs}, as={best_as}")
+                plot_step_dict(ax, step_dict, color=sample_every_colors[best_fs], label=None, alpha=0.2)
+            ax.set_title(f"best se={best_fs}, as={best_as}")
         ax.grid(True, alpha=0.3)
 
     for c in range(6):
         axes[2, c].set_xlabel("step")
         axes[0, c].set_ylabel("reward, as fixed at 1.0")
-        axes[1, c].set_ylabel("reward, fs fixed at 1")
-        axes[2, c].set_ylabel("reward, best fs, as")
+        axes[1, c].set_ylabel("reward, se fixed at 1")
+        axes[2, c].set_ylabel("reward, best se, as")
 
-    fig.suptitle("Reward for SAC: frame_skip, action_scale, and best", fontsize=16)
+    fig.suptitle("Reward for SAC: sample_every, action_scale, and best", fontsize=16)
     fig.tight_layout()
     out_path = args.out
     plt.savefig(out_path, dpi=140)

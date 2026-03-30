@@ -19,7 +19,7 @@ def main():
         sys.exit(1)
 
     # New directory structure:
-    # runs/<project>/<benchmark>/<algo>_fs<frame_skip>_as<action_scale>_seed<seed>/checkpoints/final.pt
+    # runs/<project>/<benchmark>/<algo>_se<sample_every>_as<action_scale>_seed<seed>/checkpoints/final.pt
     checkpoint_files = sorted(checkpoints_dir.glob("**/checkpoints/final.pt"))
     if not checkpoint_files:
         print(f"No trained models found under {checkpoints_dir}")

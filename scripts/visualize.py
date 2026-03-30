@@ -51,8 +51,8 @@ def load_checkpoint(checkpoint_path: Path, device: torch.device) -> tuple[SacAge
     cfg = config_from_dict(cfg_dict) if isinstance(cfg_dict, dict) else cfg_dict
     cfg.env.render_mode = "rgb_array"
     cfg.env.camera_name = "corner3"
-    cfg.env.frame_skip = 5  # TODO: can change this to test different frame-skip values
-    print("Frame skip value", cfg.env.frame_skip)
+    cfg.sample_every = 1
+    print("Sample-every value", cfg.sample_every)
     cfg.device = str(device)
     cfg.logging.use_wandb = False  # Disable wandb
     

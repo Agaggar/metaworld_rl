@@ -5,6 +5,8 @@ I am testing out some "vibe coding" functionality using Cursor. The vast majorit
 
 Research-oriented code to benchmark **SAC** and **PPO** (PyTorch, from scratch) on [MetaWorld](https://github.com/Farama-Foundation/Metaworld), starting with **state observations** (full MuJoCo state, including end-effector information). The layout is modular so you can swap algorithms, MLP sizes, and environment knobs without touching core learning code.
 
+The control loop always runs at full simulator frequency. The experiment knob is `sample_every`, which keeps action frequency unchanged while reducing how often transitions are committed to learning. This isolates the effect of data sampling rate without reducing control fidelity.
+
 ## Requirements
 
 - **Python 3.10+** (MetaWorld 3.x)
@@ -30,23 +32,23 @@ Full **MT10** (10 parallel tasks, fixed 10 sub-envs):
 python scripts/train.py --config configs/default.yaml --algorithm sac --device cuda
 ```
 
-YAML config (`configs/default.yaml`) controls training, logging intervals, and environment options. CLI flags override the loaded file. The resolved config is written to `runs/last_config.yaml` each run.
+YAML config (`configs/default.yaml`) controls training, logging intervals, and environment options. CLI flags override the loaded file. The resolved config is written to a run-specific `last_config.yaml` path each run.
 
 ## Modular environment options
 
-`EnvConfig` (see `metaworld_rl/config.py`) includes:
+`TrainConfig` / `EnvConfig` (see `metaworld_rl/config.py`) include:
 
 | Option | Role |
 |--------|------|
 | `benchmark` | `"MT10"` or a single task id (e.g. `reach-v3`) |
 | `num_envs` | Parallel actors for single-task mode (ignored for MT10, which is always 10) |
-| `frame_skip` | Repeat the same action for N simulator steps; rewards are summed |
+| `sample_every` | Commit one learner transition every N control steps (action still computed every step) |
 | `action_scale` | Multiply actions before clipping to `[-1, 1]` (lower ⇒ gentler motion) |
 | `normalize_observations` | Online running mean/variance normalization |
 | `use_one_hot_task_id` | Append task one-hot (via MetaWorld) for future multi-task conditioning |
 | `render_mode` | Set to `rgb_array` when you need evaluation videos |
 
-Wrappers live in `metaworld_rl/env/wrappers.py`; construction is in `metaworld_rl/env/factory.py`.
+Wrappers live in `metaworld_rl/env/wrappers.py`; environment construction is in `metaworld_rl/env/factory.py`.
 
 ## Algorithms and layout
 
