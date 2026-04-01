@@ -147,9 +147,9 @@ def _compute_mean_std(step_dict: dict[int, list[float]]):
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--entity", type=str, default=None, help="W&B entity/user/org (required if not inferrable).")
-    p.add_argument("--project", type=str, default="metaworld_rl")
+    p.add_argument("--project", type=str, default="se_as_sweep")
     p.add_argument("--metric", type=str, default="eval/episode_return_mean")
-    p.add_argument("--out", type=str, default=str("visualizations/sac_ablation_6x3.png"))
+    p.add_argument("--out", type=str, default=str("visualizations/se_as_sweep_6x3.png"))
     p.add_argument(
         "--max-runs",
         type=int,
@@ -263,9 +263,9 @@ def main() -> None:
             return None
         return sum(vals) / len(vals)
 
-    eval_as_fixed = 1.0
+    eval_as_fixed = 0.1
 
-    # Row 0: action_scale fixed at 1.0; vary sample_every.
+    # Row 0: action_scale fixed at 0.1; vary sample_every.
     for col_idx, (env_id, env_short) in enumerate(ENV_COLS, start=1):
         ax = axes[0, col_idx]
         for fs in SAMPLE_EVERY_VALUES:
@@ -305,7 +305,7 @@ def main() -> None:
     for col_idx, (env_id, _env_short) in enumerate(ENV_COLS, start=1):
         ax = axes[1, col_idx]
         for ascale in ACTION_SCALE_VALUES:
-            step_dict = curves.get((env_id, 1, ascale), {})
+            step_dict = curves.get((env_id, 2, ascale), {})
             if not step_dict:
                 continue
             plot_step_dict(ax, step_dict, action_colors[ascale], label=f"as={ascale}")
@@ -318,7 +318,7 @@ def main() -> None:
     for ascale in ACTION_SCALE_VALUES:
         per_env: list[dict[int, list[float]]] = []
         for env_id, _ in ENV_COLS:
-            step_dict = curves.get((env_id, 1, ascale), {})
+            step_dict = curves.get((env_id, 2, ascale), {})
             if step_dict:
                 per_env.append(step_dict)
         if not per_env:
@@ -405,8 +405,8 @@ def main() -> None:
 
     for c in range(6):
         axes[2, c].set_xlabel("step")
-        axes[0, c].set_ylabel("reward, as fixed at 1.0")
-        axes[1, c].set_ylabel("reward, se fixed at 1")
+        axes[0, c].set_ylabel("reward, as fixed at 0.1")
+        axes[1, c].set_ylabel("reward, se fixed at 2")
         axes[2, c].set_ylabel("reward, best se, as")
 
     fig.suptitle("Reward for SAC: sample_every, action_scale, and best", fontsize=16)
