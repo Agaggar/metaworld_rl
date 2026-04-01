@@ -11,7 +11,7 @@ import yaml
 
 @dataclass
 class EnvConfig:
-    """Environment construction; supports MT10 or a single v3 task name."""
+    """Environment construction: MetaWorld (``suite=metaworld``) or Gymnasium-Robotics."""
 
     benchmark: str = "MT10"
     """Use 'MT10' for the 10-task benchmark, or a task id like 'reach-v3'."""
@@ -37,6 +37,12 @@ class EnvConfig:
 
     camera_name: str | None = None
     """Override default MT10 camera (e.g. 'corner'). Only applies if render_mode is not None."""
+
+    suite: Literal["metaworld", "robotics"] = "metaworld"
+    """``metaworld``: ``benchmark`` / MetaWorld. ``robotics``: ``robotics_env_id`` via Gymnasium-Robotics."""
+
+    robotics_env_id: str | None = None
+    """Registered env id when ``suite=='robotics'`` (e.g. HandManipulateBlock_ContinuousTouchSensors-v1)."""
 
 @dataclass
 class SacConfig:

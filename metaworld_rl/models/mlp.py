@@ -136,7 +136,8 @@ class SharedActorCritic(nn.Module):
         action = torch.tanh(x_t)
         log_prob -= torch.log(1 - action.pow(2) + 1e-6).sum(-1)
         entropy = dist.entropy().sum(-1)
-        return action, log_prob, entropy, v.squeeze(-1)
+        # v is already (B,) from forward(); do not squeeze again or B==1 becomes a scalar.
+        return action, log_prob, entropy, v
 
     def evaluate_actions(
         self, obs: torch.Tensor, actions: torch.Tensor
@@ -151,4 +152,4 @@ class SharedActorCritic(nn.Module):
         log_prob = dist.log_prob(x_t).sum(-1)
         log_prob -= torch.log(1 - actions.pow(2) + eps).sum(-1)
         entropy = dist.entropy().sum(-1)
-        return log_prob, entropy, v.squeeze(-1)
+        return log_prob, entropy, v

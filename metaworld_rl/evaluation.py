@@ -14,6 +14,21 @@ if TYPE_CHECKING:
     from metaworld_rl.agents.sac import SacAgent
 
 
+def _success_from_vector_infos(infos: dict[str, Any]) -> np.ndarray | None:
+    """Batch success signal from Gymnasium vector ``infos`` (MetaWorld vs Robotics keys)."""
+    if "success" in infos:
+        s = infos["success"]
+    elif "is_success" in infos:
+        s = infos["is_success"]
+    elif "_is_success" in infos:
+        s = infos["_is_success"]
+    else:
+        return None
+    if isinstance(s, np.ndarray):
+        return s.astype(np.float64, copy=False)
+    return None
+
+
 def set_obs_norm_training(env: Any, training: bool) -> None:
     """If wrapped with VectorObservationNormalize, toggle training (freeze stats during eval)."""
     cur = env
@@ -61,10 +76,9 @@ def evaluate_vector_env(
         obs, rewards, term, trunc, infos = env.step(actions)
         returns += rewards * active.astype(np.float64)
         done = term | trunc
-        if "success" in infos:
-            succ = infos["success"]
-            if isinstance(succ, np.ndarray):
-                success = np.maximum(success, succ.astype(np.float64) * active.astype(np.float64))
+        succ = _success_from_vector_infos(infos)
+        if succ is not None:
+            success = np.maximum(success, succ * active.astype(np.float64))
         active &= ~done
         steps += 1
 

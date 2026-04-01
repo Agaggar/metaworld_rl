@@ -16,6 +16,13 @@ from metaworld_rl.config import TrainConfig, load_train_config, save_train_confi
 from metaworld_rl.trainer import Trainer
 
 
+def _run_slug(cfg: TrainConfig, benchmark_arg: str) -> str:
+    """Directory / W&B segment: robotics env id or MetaWorld benchmark CLI name."""
+    if cfg.env.suite == "robotics" and cfg.env.robotics_env_id:
+        return cfg.env.robotics_env_id.replace("/", "_")
+    return benchmark_arg
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description="MetaWorld RL training")
     p.add_argument(
@@ -25,7 +32,9 @@ def main() -> None:
         help="YAML config path (optional; defaults to built-in TrainConfig)",
     )
     p.add_argument("--algorithm", choices=["sac", "ppo"], default="sac")
-    p.add_argument("--benchmark", choices=["MT10", "shelf", "sweep", "assembly", "plate", "button", "door", "drawer", "window", "lever", "coffee", "faucet"], default="MT10", help="MT10 or e.g. reach-v3")
+    p.add_argument("--benchmark", type=str, default="MT10", help="MetaWorld only; ignored when env.suite is robotics (YAML or --suite)")
+    p.add_argument("--suite", choices=["metaworld", "robotics"], default=None, help="Override env.suite (default: from config)")
+    p.add_argument("--robotics-env-id", type=str, default=None, help="Override env.robotics_env_id when suite is robotics")
     p.add_argument("--total-timesteps", type=int, default=None)
     p.add_argument("--device", type=str, default="cuda:2")
     p.add_argument("--num-envs", type=int, default=None, help="Parallel envs (ignored for MT10)")
@@ -44,7 +53,11 @@ def main() -> None:
 
     if args.algorithm is not None:
         cfg.algorithm = args.algorithm
-    if args.benchmark is not None:
+    if args.suite is not None:
+        cfg.env.suite = args.suite
+    if args.robotics_env_id is not None:
+        cfg.env.robotics_env_id = args.robotics_env_id
+    if args.benchmark is not None and cfg.env.suite == "metaworld":
         cfg.env.benchmark = name_to_env_name(args.benchmark)
     if args.total_timesteps is not None:
         cfg.total_timesteps = args.total_timesteps
@@ -58,7 +71,10 @@ def main() -> None:
         cfg.logging.use_wandb = True
     if args.project is not None:
         cfg.logging.wandb_project = args.project
-        cfg.logging.wandb_run_name = args.benchmark + "_" + cfg.algorithm + "_" + str(args.sample_every) + "_" + str(args.action_scale)
+        slug = _run_slug(cfg, args.benchmark)
+        cfg.logging.wandb_run_name = (
+            slug + "_" + cfg.algorithm + "_" + str(args.sample_every) + "_" + str(args.action_scale)
+        )
         # Ensure checkpoints don't get overwritten across ablations.
         def _float_tag(x: float) -> str:
             # Keep tags filename-friendly and stable across common float values like 0.5, 1.0, 2.0.
@@ -68,7 +84,7 @@ def main() -> None:
             ROOT
             / "runs"
             / args.project
-            / args.benchmark
+            / slug
             / f"{cfg.algorithm}_se{args.sample_every}_as{_float_tag(args.action_scale)}_seed{cfg.seed}"
         )
         cfg.checkpoint_dir = str(run_dir / "checkpoints")
@@ -81,7 +97,8 @@ def main() -> None:
         cfg.sample_every = int(args.frame_skip)
     if args.action_scale is not None:
         cfg.env.action_scale = float(args.action_scale)
-    out = ROOT / "runs" / args.project / args.benchmark / "last_config.yaml"
+    slug = _run_slug(cfg, args.benchmark)
+    out = ROOT / "runs" / args.project / slug / "last_config.yaml"
     if args.project is not None:
         # Mirror the checkpoint directory uniqueness to the config snapshot path too.
         def _float_tag(x: float) -> str:
@@ -91,7 +108,7 @@ def main() -> None:
             ROOT
             / "runs"
             / args.project
-            / args.benchmark
+            / slug
             / f"{cfg.algorithm}_se{args.sample_every}_as{_float_tag(args.action_scale)}_seed{cfg.seed}"
             / "last_config.yaml"
         )

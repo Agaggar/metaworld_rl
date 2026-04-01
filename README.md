@@ -34,13 +34,30 @@ python scripts/train.py --config configs/default.yaml --algorithm sac --device c
 
 YAML config (`configs/default.yaml`) controls training, logging intervals, and environment options. CLI flags override the loaded file. The resolved config is written to a run-specific `last_config.yaml` path each run.
 
+### Gymnasium-Robotics (Shadow Hand touch)
+
+Example config: [`configs/robotics_shadow_touch_block.yaml`](configs/robotics_shadow_touch_block.yaml). Swap `env.robotics_env_id` for `HandManipulateEgg_ContinuousTouchSensors-v1` or `HandManipulatePen_ContinuousTouchSensors-v1`. Dict observations are flattened to a single vector (`observation` + `desired_goal` + `achieved_goal`).
+
+```bash
+python3.10 scripts/train.py --config configs/robotics_shadow_touch_block.yaml --algorithm sac --device cuda:2
+# or override from a MetaWorld-oriented YAML:
+python3.10 scripts/train.py --config configs/default.yaml --suite robotics \
+  --robotics-env-id HandManipulateBlock_ContinuousTouchSensors-v1 --num-envs 1
+```
+
+### Training runtime (wall clock)
+
+Simulator stepping is often the bottleneck when GPU utilization stays low. Levers that improve throughput without changing physics: increase `num_envs` for single-task MetaWorld or robotics runs; use `gymnasium.vector.AsyncVectorEnv` in `factory.py` if you want overlapped CPU rollouts (not wired by default). Optional PyTorch-side speedups include `torch.compile` on the policy/critic and TF32 / matmul precision flags—treat these as infrastructure tuning, not part of `sample_every` comparisons unless you keep them fixed across runs.
+
 ## Modular environment options
 
 `TrainConfig` / `EnvConfig` (see `metaworld_rl/config.py`) include:
 
 | Option | Role |
 |--------|------|
-| `benchmark` | `"MT10"` or a single task id (e.g. `reach-v3`) |
+| `suite` | `"metaworld"` (default) or `"robotics"` (Shadow Hand / Fetch-style via Gymnasium-Robotics) |
+| `robotics_env_id` | Registered id when `suite=robotics` (e.g. `HandManipulateBlock_ContinuousTouchSensors-v1`) |
+| `benchmark` | `"MT10"` or a single MetaWorld task id; used only when `suite=metaworld` |
 | `num_envs` | Parallel actors for single-task mode (ignored for MT10, which is always 10) |
 | `sample_every` | Commit one learner transition every N control steps (action still computed every step) |
 | `action_scale` | Multiply actions before clipping to `[-1, 1]` (lower ⇒ gentler motion) |

@@ -1,10 +1,12 @@
-"""Vector-env wrappers: action scaling and observation normalization."""
+"""Vector-env wrappers: action scaling, observation normalization, dict flattening."""
 
 from __future__ import annotations
 
+import gymnasium as gym
 import numpy as np
 import numpy.typing as npt
 from gymnasium.vector import VectorEnv, VectorWrapper
+from gymnasium.vector.utils import batch_space
 
 
 class RunningMeanStd:
@@ -46,6 +48,52 @@ class VectorActionScale(VectorWrapper):
     def step(self, actions):
         a = np.clip(actions * self._scale, -1.0, 1.0)
         return self.env.step(a)
+
+
+class VectorFlattenDictObs(VectorWrapper):
+    """Flatten goal-aware Dict observations to a single Box ``(num_envs, flat_dim)``.
+
+    Concatenates ``observation``, ``desired_goal``, and ``achieved_goal`` (Shadow Hand /
+    Fetch-style Gymnasium-Robotics spaces).
+    """
+
+    _KEYS = ("observation", "desired_goal", "achieved_goal")
+
+    def __init__(self, env: VectorEnv) -> None:
+        super().__init__(env)
+        inner = self.env.single_observation_space
+        if not isinstance(inner, gym.spaces.Dict):
+            raise TypeError(
+                "VectorFlattenDictObs expects a Dict observation space from the inner env, "
+                f"got {type(inner)}"
+            )
+        for k in self._KEYS:
+            if k not in inner.spaces:
+                raise KeyError(
+                    f"VectorFlattenDictObs requires key {k!r} in observation space; "
+                    f"have {list(inner.spaces)}"
+                )
+        flat_dim = sum(int(np.prod(inner[k].shape)) for k in self._KEYS)
+        low = np.full((flat_dim,), -np.inf, dtype=np.float32)
+        high = np.full((flat_dim,), np.inf, dtype=np.float32)
+        self.single_observation_space = gym.spaces.Box(
+            low, high, (flat_dim,), dtype=np.float32
+        )
+        self.observation_space = batch_space(
+            self.single_observation_space, n=self.num_envs
+        )
+
+    def reset(self, *, seed=None, options=None):
+        obs, infos = self.env.reset(seed=seed, options=options)
+        return self._flatten_batch(obs), infos
+
+    def step(self, actions):
+        obs, rew, term, trunc, infos = self.env.step(actions)
+        return self._flatten_batch(obs), rew, term, trunc, infos
+
+    def _flatten_batch(self, obs: dict[str, np.ndarray]) -> npt.NDArray[np.float32]:
+        parts = [obs[k] for k in self._KEYS]
+        return np.concatenate(parts, axis=-1).astype(np.float32, copy=False)
 
 
 class VectorObservationNormalize(VectorWrapper):

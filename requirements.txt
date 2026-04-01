@@ -1,6 +1,7 @@
 # Python 3.10+ recommended (MetaWorld 3.x)
 torch>=2.0.0
 gymnasium>=0.29.0
+gymnasium-robotics>=1.2.0
 numpy>=1.24.0
 matplotlib>=3.7.0
 wandb>=0.16.0
