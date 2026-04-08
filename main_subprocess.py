@@ -33,13 +33,16 @@ elif env_to_use == "gymnasium_box2d":
 else:
     raise ValueError(f"Invalid environment to use: {env_to_use}")
 
-algorithms_to_use = ["ppo"] # or "sac"
+# around 4 mins per run for classic control ppo
+# so 3 seeds, 3 action scales, 3 sample everys, 3 benchmarks = 3*3*3*3 = 81 runs
+# approximately 81*4 mins = 324 mins = 5.4 hours
+algorithms_to_use = ["sac"] # or "ppo"
 num_seeds = 3
-action_scales = [1.0] # [0.1, 0.25, 1.0, 5.0]
-sample_everys = [1] # [1, 2, 5, 10]
+action_scales = [1.0] # [0.25, 5.0] # 1.0, 0.1, 
+sample_everys = [1, 2] # 1, 2, 5, 10
 for seed in range(num_seeds):
     for algorithm_to_use in algorithms_to_use:
-        for action_scale in action_scales:
+        for action_scale in reversed(action_scales):
             for sample_every in sample_everys:
                 print(f"Training with action_scale={action_scale} and sample_every={sample_every}")
                 for benchmark in benchmarks:

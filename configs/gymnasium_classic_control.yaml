@@ -4,7 +4,7 @@
 #   CartPole-v1
 #   MountainCar-v0
 algorithm: ppo
-total_timesteps: 500000
+total_timesteps: 250000
 sample_every: 1
 device: cuda:2
 seed: 0
@@ -65,9 +65,9 @@ logging:
   wandb_entity: null
   log_interval: 100
   eval_interval: 20000
-  checkpoint_interval: 50000
+  checkpoint_interval: 100000
   log_train_metrics: [loss_policy, loss_value, entropy, approx_kl]
   log_eval_metrics: [success_rate, episode_return_mean]
-  save_plots: true
+  save_plots: false
   plot_dir: runs/gymnasium_classic_control/plots
   history_csv: runs/gymnasium_classic_control/history.csv

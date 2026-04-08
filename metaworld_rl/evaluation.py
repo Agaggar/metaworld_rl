@@ -84,7 +84,7 @@ def evaluate_vector_env(
 
     set_obs_norm_training(env, True)
     return {
-        "success_rate": float(success.mean()) if num_envs else 0.0,
+        "success_rate": float(success.mean()), # if num_envs else 0.0,
         "episode_return_mean": float(returns.mean()),
     }
 

@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 from collections import defaultdict
 from typing import Any
+import warnings
 
 import matplotlib
 
@@ -28,6 +29,7 @@ from tqdm import tqdm
 
 SAMPLE_EVERY_VALUES = [1, 2, 5, 10]
 ACTION_SCALE_VALUES = [0.1, 0.25, 1.0, 5.0]
+NUM_SEEDS = 3
 
 # Env ids as stored in metaworld_rl.config.name_to_env_name(...)
 ENV_COLS = [
@@ -37,6 +39,14 @@ ENV_COLS = [
     ("coffee-button-v3", "coffee"),
     ("faucet-open-v3", "faucet"),
 ]
+
+ENV_COLS = [
+    ("CartPole-v1", "CartPole"),
+    ("Acrobot-v1", "Acrobot"),
+    ("MountainCar-v0", "MountainCar"),
+]
+ACTION_SCALE_VALUES = [1.0]
+column_titles = ["CartPole: Target=500", "Acrobot: Target=-80 or higher", "MountainCar: Target=-200"]
 
 ALG_ROWS = ["sac", "ppo"]
 
@@ -143,9 +153,12 @@ def main() -> None:
         if cfg_algo not in ALG_ROWS:
             continue
 
-        env_id = _get_cfg(run, "env.benchmark")
-        if env_id not in env_names:
-            continue
+        if _get_cfg(run, "env.gym_env_id") is not None:
+            env_id = _get_cfg(run, "env.gym_env_id")
+        else:
+            env_id = _get_cfg(run, "env.benchmark")
+        # if env_id not in env_names:
+        #     continue
 
         fs = _get_cfg(run, "frames_every")
         if fs is None:
@@ -153,7 +166,11 @@ def main() -> None:
         if fs is None:
             fs = _get_cfg(run, "env.frame_skip")
         ascale = _get_cfg(run, "env.action_scale")
-
+        seed = _get_cfg(run, "seed")
+        if seed is None:
+            seed = 0
+        else:
+            seed = int(seed)
         try:
             fs_int = int(fs)
         except Exception:
@@ -165,10 +182,10 @@ def main() -> None:
         if fs_int not in SAMPLE_EVERY_VALUES or asnap not in ACTION_SCALE_VALUES:
             continue
 
-        run_groups[(env_id, cfg_algo, fs_int, asnap)].append(run)
+        run_groups[(env_id, cfg_algo, fs_int, asnap, seed)].append(run)
 
     # Mean final reward per cell across matching runs.
-    final_scores: dict[tuple[str, str, int, float], float] = {}
+    final_scores: dict[tuple[str, str, int, float, int], float] = {}
     for key, grouped_runs in run_groups.items():
         vals = []
         for run in grouped_runs:
@@ -176,7 +193,7 @@ def main() -> None:
             if last_val is not None:
                 vals.append(last_val)
         if vals:
-            final_scores[key] = float(sum(vals) / len(vals))
+            final_scores[key] = float(np.mean(vals))
 
     fig, axes = plt.subplots(nrows=len(ALG_ROWS), ncols=len(ENV_COLS), figsize=(28, 10), constrained_layout=False)
     fig.subplots_adjust(left=0.055, right=0.92, top=0.9, bottom=0.08, wspace=0.36, hspace=0.37)
@@ -188,18 +205,20 @@ def main() -> None:
     for row, algorithm in tqdm(enumerate(ALG_ROWS), desc="Rows"):
         for col, (env_id, env_short) in tqdm(enumerate(ENV_COLS), desc="Columns"):
             ax = axes[row, col]
-            grid = np.full((len(ACTION_SCALE_VALUES), len(SAMPLE_EVERY_VALUES)), np.nan, dtype=float)
+            grid = np.full((len(ACTION_SCALE_VALUES), len(SAMPLE_EVERY_VALUES), NUM_SEEDS), np.nan, dtype=float)
             for key, score in final_scores.items():
-                if key[0] == env_id and key[1] == algorithm and key[2] in SAMPLE_EVERY_VALUES and key[3] in ACTION_SCALE_VALUES:
-                    grid[ACTION_SCALE_VALUES.index(key[3]), SAMPLE_EVERY_VALUES.index(key[2])] = score
+                if (key[0] == env_id or key[0] == env_short) and key[1] == algorithm and key[2] in SAMPLE_EVERY_VALUES and key[3] in ACTION_SCALE_VALUES:
+                    grid[ACTION_SCALE_VALUES.index(key[3]), SAMPLE_EVERY_VALUES.index(key[2]), key[4]] = score
 
             if np.all(np.isnan(grid)):
                 title = f"{env_short}: no data"
             else:
-                best_y, best_x = np.unravel_index(np.nanargmax(grid), grid.shape)
+                best_y, best_x, best_seed = np.unravel_index(np.nanargmax(grid), grid.shape)
                 best_fs = SAMPLE_EVERY_VALUES[best_x]
                 best_as = ACTION_SCALE_VALUES[best_y]
-                title = f"{env_short}: best frames_every={best_fs}, as={best_as}"
+                title = f"{env_short}: best frames_every={best_fs}, as={best_as}, seed={best_seed}"
+                if column_titles[col] is not None:
+                    title = f"{column_titles[col]}"
 
             valid_vals = grid[~np.isnan(grid)]
             if valid_vals.size > 0:
@@ -210,7 +229,22 @@ def main() -> None:
             else:
                 vmin_local, vmax_local = 0.0, 1.0
 
-            image_handle = ax.imshow(grid, origin="lower", aspect="auto", cmap=cmap, vmin=vmin_local, vmax=vmax_local)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                grid_values = np.nanmean(grid, axis=2)
+                grid_std_dev = np.nanstd(grid, axis=2)
+            image_handle = ax.imshow(grid_values, origin="lower", aspect="auto", cmap=cmap, vmin=vmin_local, vmax=vmax_local)
+
+            for y in range(len(ACTION_SCALE_VALUES)):
+                for x in range(len(SAMPLE_EVERY_VALUES)):
+                    mean_val = grid_values[y, x]
+                    std_val = grid_std_dev[y, x]
+                    if np.isnan(mean_val) or np.isnan(std_val):
+                        label = "N/A"
+                    else:
+                        label = f"{mean_val:.2f}\n±{std_val:.2f}"
+                    ax.text(x, y, label, ha="center", va="center", fontsize=8, color="black")
+
             ax.set_title(title)
             ax.set_xticks(range(len(SAMPLE_EVERY_VALUES)))
             ax.set_xticklabels([str(v) for v in SAMPLE_EVERY_VALUES])
@@ -235,7 +269,7 @@ def main() -> None:
             fontweight="bold",
         )
 
-    fig.suptitle("Final reward heatmaps by environment and algorithm", fontsize=20, y=0.985)
+    fig.suptitle("Final reward heatmaps for classic control (discrete, can't scale actions)", fontsize=20, y=0.985)
     plt.savefig(args.out, dpi=200)
     plt.close(fig)
     print(f"Saved figure to {args.out}")
