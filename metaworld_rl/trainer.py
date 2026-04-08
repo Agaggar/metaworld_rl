@@ -346,6 +346,7 @@ class Trainer:
             "step": float(self.global_sim_step),
             "sim_step": float(self.global_sim_step),
             "sample_step": float(self.global_sample_step),
+            "episode_return_mean": float(ret.mean()),
             **metrics,
         }
         self.history.append(row)
