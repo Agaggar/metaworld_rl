@@ -20,11 +20,17 @@ class PpoAgent:
         model: ModelConfig,
         ppo: PpoConfig,
         device: torch.device,
+        action_space_type: str,
     ) -> None:
         self.device = device
         self.ppo = ppo
+        self.action_space_type = action_space_type
         self.net = SharedActorCritic(
-            obs_dim, act_dim, model.hidden_dims, model.activation
+            obs_dim,
+            act_dim,
+            model.hidden_dims,
+            model.activation,
+            action_space_type=action_space_type,
         ).to(device)
         self.opt = optim.Adam(self.net.parameters(), lr=ppo.lr, eps=1e-5)
 
@@ -42,18 +48,22 @@ class PpoAgent:
         old_log_probs: torch.Tensor,
         advantages: torch.Tensor,
         returns: torch.Tensor,
+        old_values: torch.Tensor,
     ) -> dict[str, float]:
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        if self.ppo.norm_adv:
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         total_pi_loss = 0.0
         total_v_loss = 0.0
         total_ent = 0.0
+        total_approx_kl = 0.0
         n_updates = 0
 
         n = obs.shape[0]
         mb = min(self.ppo.minibatch_size, n)
         for _ in range(self.ppo.n_epochs):
             perm = torch.randperm(n, device=self.device)
+            stop_early = False
             for start in range(0, n, mb):
                 idx = perm[start : start + mb]
                 o = obs[idx]
@@ -61,6 +71,7 @@ class PpoAgent:
                 old_lp = old_log_probs[idx]
                 adv = advantages[idx]
                 ret = returns[idx]
+                old_v = old_values[idx]
 
                 log_probs, entropy, values = self.net.evaluate_actions(o, a)
                 ratio = torch.exp(log_probs - old_lp)
@@ -70,7 +81,16 @@ class PpoAgent:
                     * adv
                 )
                 pi_loss = -torch.min(surr1, surr2).mean()
-                v_loss = F.mse_loss(values, ret)
+
+                if self.ppo.clip_vloss:
+                    v_loss_unclipped = (values - ret).pow(2)
+                    v_clipped = old_v + torch.clamp(
+                        values - old_v, -self.ppo.clip_range, self.ppo.clip_range
+                    )
+                    v_loss_clipped = (v_clipped - ret).pow(2)
+                    v_loss = 0.5 * torch.max(v_loss_unclipped, v_loss_clipped).mean()
+                else:
+                    v_loss = 0.5 * F.mse_loss(values, ret)
 
                 loss = (
                     pi_loss
@@ -85,16 +105,34 @@ class PpoAgent:
                 )
                 self.opt.step()
 
+                with torch.no_grad():
+                    approx_kl = ((ratio - 1.0) - (log_probs - old_lp)).mean()
+
                 total_pi_loss += float(pi_loss.item())
                 total_v_loss += float(v_loss.item())
                 total_ent += float(entropy.mean().item())
+                total_approx_kl += float(approx_kl.item())
                 n_updates += 1
+
+                if (
+                    self.ppo.target_kl is not None
+                    and float(approx_kl.item()) > self.ppo.target_kl
+                ):
+                    stop_early = True
+                    break
+            if stop_early:
+                break
 
         return {
             "loss_policy": total_pi_loss / max(n_updates, 1),
             "loss_value": total_v_loss / max(n_updates, 1),
             "entropy": total_ent / max(n_updates, 1),
+            "approx_kl": total_approx_kl / max(n_updates, 1),
         }
+
+    def set_lr(self, lr: float) -> None:
+        for param_group in self.opt.param_groups:
+            param_group["lr"] = lr
 
     def state_dict(self) -> dict[str, Any]:
         return {"net": self.net.state_dict()}

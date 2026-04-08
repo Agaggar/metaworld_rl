@@ -11,7 +11,7 @@ import yaml
 
 @dataclass
 class EnvConfig:
-    """Environment construction: MetaWorld (``suite=metaworld``) or Gymnasium-Robotics."""
+    """Environment construction: MetaWorld, Gymnasium-Robotics, or generic Gymnasium."""
 
     benchmark: str = "MT10"
     """Use 'MT10' for the 10-task benchmark, or a task id like 'reach-v3'."""
@@ -38,11 +38,13 @@ class EnvConfig:
     camera_name: str | None = None
     """Override default MT10 camera (e.g. 'corner'). Only applies if render_mode is not None."""
 
-    suite: Literal["metaworld", "robotics"] = "metaworld"
-    """``metaworld``: ``benchmark`` / MetaWorld. ``robotics``: ``robotics_env_id`` via Gymnasium-Robotics."""
+    suite: Literal["metaworld", "robotics", "gymnasium"] = "metaworld"
+    """``metaworld``: benchmark. ``robotics``: robotics_env_id. ``gymnasium``: gym_env_id."""
 
     robotics_env_id: str | None = None
     """Registered env id when ``suite=='robotics'`` (e.g. HandManipulateBlock_ContinuousTouchSensors-v1)."""
+    gym_env_id: str | None = None
+    """Registered env id when ``suite=='gymnasium'`` (e.g. CartPole-v1, BipedalWalker-v3)."""
 
 @dataclass
 class SacConfig:
@@ -58,6 +60,8 @@ class SacConfig:
     batch_size: int = 256
     warmup_steps: int = 5_000
     updates_per_step: int = 1
+    policy_frequency: int = 1
+    target_network_frequency: int = 1
 
 
 @dataclass
@@ -72,6 +76,10 @@ class PpoConfig:
     n_steps: int = 2048
     n_epochs: int = 10
     minibatch_size: int = 256
+    anneal_lr: bool = False
+    norm_adv: bool = True
+    clip_vloss: bool = True
+    target_kl: float | None = None
 
 
 @dataclass

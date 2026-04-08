@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
-Create a 1x5 matplotlib heatmap grid for SAC ablations from W&B runs.
+Create a 2x5 matplotlib heatmap grid for SAC/PPO ablations from W&B runs.
 
 Each subplot corresponds to one environment:
-- x-axis: sample_every
+- x-axis: frames_every (config key: sample_every)
 - y-axis: action_scale
 - color: final reward score (last value of eval metric)
+
+Rows correspond to algorithms (SAC, PPO).
 
 Uses only matplotlib for plotting.
 """
@@ -35,6 +37,8 @@ ENV_COLS = [
     ("coffee-button-v3", "coffee"),
     ("faucet-open-v3", "faucet"),
 ]
+
+ALG_ROWS = ["sac", "ppo"]
 
 
 def _float_eq(a: float, b: float, tol: float = 1e-8) -> bool:
@@ -115,7 +119,7 @@ def main() -> None:
         "--max-runs",
         type=int,
         default=200,
-        help="Safety cap for scan size (will still only include SAC runs in the expected ablation grid).",
+        help="Safety cap for scan size (only runs in the expected SAC/PPO ablation grid are included).",
     )
     args = p.parse_args()
 
@@ -127,8 +131,8 @@ def main() -> None:
 
     env_names = {e for e, _ in ENV_COLS}
 
-    # Group runs by (env_id, sample_every, action_scale)
-    run_groups: dict[tuple[str, int, float], list[wandb.apis.public.Run]] = defaultdict(list)
+    # Group runs by (env_id, algorithm, sample_every, action_scale)
+    run_groups: dict[tuple[str, str, int, float], list[wandb.apis.public.Run]] = defaultdict(list)
     n = 0
     for run in tqdm(runs):
         n += 1
@@ -136,14 +140,16 @@ def main() -> None:
             break
 
         cfg_algo = _get_cfg(run, "algorithm")
-        if cfg_algo != "sac":
+        if cfg_algo not in ALG_ROWS:
             continue
 
         env_id = _get_cfg(run, "env.benchmark")
         if env_id not in env_names:
             continue
 
-        fs = _get_cfg(run, "sample_every")
+        fs = _get_cfg(run, "frames_every")
+        if fs is None:
+            fs = _get_cfg(run, "sample_every")
         if fs is None:
             fs = _get_cfg(run, "env.frame_skip")
         ascale = _get_cfg(run, "env.action_scale")
@@ -159,10 +165,10 @@ def main() -> None:
         if fs_int not in SAMPLE_EVERY_VALUES or asnap not in ACTION_SCALE_VALUES:
             continue
 
-        run_groups[(env_id, fs_int, asnap)].append(run)
+        run_groups[(env_id, cfg_algo, fs_int, asnap)].append(run)
 
     # Mean final reward per cell across matching runs.
-    final_scores: dict[tuple[str, int, float], float] = {}
+    final_scores: dict[tuple[str, str, int, float], float] = {}
     for key, grouped_runs in run_groups.items():
         vals = []
         for run in grouped_runs:
@@ -172,52 +178,65 @@ def main() -> None:
         if vals:
             final_scores[key] = float(sum(vals) / len(vals))
 
-    fig, axes = plt.subplots(nrows=1, ncols=5, figsize=(24, 4.8), constrained_layout=True)
+    fig, axes = plt.subplots(nrows=len(ALG_ROWS), ncols=len(ENV_COLS), figsize=(28, 10), constrained_layout=False)
+    fig.subplots_adjust(left=0.055, right=0.92, top=0.9, bottom=0.08, wspace=0.36, hspace=0.37)
 
     cmap = plt.get_cmap("coolwarm").copy()
     # Design choice: show missing (sample_every, action_scale) combinations in light gray.
     cmap.set_bad(color="#e9e9e9")
 
-    for i, (env_id, env_short) in tqdm(enumerate(ENV_COLS), desc="Columns"):
-        ax = axes[i]
-        grid = np.full((len(ACTION_SCALE_VALUES), len(SAMPLE_EVERY_VALUES)), np.nan, dtype=float)
+    for row, algorithm in tqdm(enumerate(ALG_ROWS), desc="Rows"):
+        for col, (env_id, env_short) in tqdm(enumerate(ENV_COLS), desc="Columns"):
+            ax = axes[row, col]
+            grid = np.full((len(ACTION_SCALE_VALUES), len(SAMPLE_EVERY_VALUES)), np.nan, dtype=float)
+            for key, score in final_scores.items():
+                if key[0] == env_id and key[1] == algorithm and key[2] in SAMPLE_EVERY_VALUES and key[3] in ACTION_SCALE_VALUES:
+                    grid[ACTION_SCALE_VALUES.index(key[3]), SAMPLE_EVERY_VALUES.index(key[2])] = score
 
-        for y, action_scale in enumerate(ACTION_SCALE_VALUES):
-            for x, sample_every in enumerate(SAMPLE_EVERY_VALUES):
-                key = (env_id, sample_every, action_scale)
-                if key in final_scores:
-                    grid[y, x] = final_scores[key]
+            if np.all(np.isnan(grid)):
+                title = f"{env_short}: no data"
+            else:
+                best_y, best_x = np.unravel_index(np.nanargmax(grid), grid.shape)
+                best_fs = SAMPLE_EVERY_VALUES[best_x]
+                best_as = ACTION_SCALE_VALUES[best_y]
+                title = f"{env_short}: best frames_every={best_fs}, as={best_as}"
 
-        valid_vals = grid[~np.isnan(grid)]
-        if valid_vals.size > 0:
-            vmin = float(np.min(valid_vals))
-            vmax = float(np.max(valid_vals))
-            if _float_eq(vmin, vmax):
-                vmax = vmin + 1e-6
+            valid_vals = grid[~np.isnan(grid)]
+            if valid_vals.size > 0:
+                vmin_local = float(np.min(valid_vals))
+                vmax_local = float(np.max(valid_vals))
+                if _float_eq(vmin_local, vmax_local, tol=1e-12):
+                    vmax_local = vmin_local + 1.0
+            else:
+                vmin_local, vmax_local = 0.0, 1.0
 
-            best_y, best_x = np.unravel_index(np.nanargmax(grid), grid.shape)
-            best_se = SAMPLE_EVERY_VALUES[best_x]
-            best_as = ACTION_SCALE_VALUES[best_y]
-            title = f"{env_short}: best se={best_se}, as={best_as}"
-        else:
-            vmin, vmax = 0.0, 1.0
-            title = f"{env_short}: no data"
-
-        image_handle = ax.imshow(grid, origin="lower", aspect="auto", cmap=cmap, vmin=vmin, vmax=vmax)
-        ax.set_title(title)
-        ax.set_xticks(range(len(SAMPLE_EVERY_VALUES)))
-        ax.set_xticklabels([str(v) for v in SAMPLE_EVERY_VALUES])
-        ax.set_yticks(range(len(ACTION_SCALE_VALUES)))
-        ax.set_yticklabels([str(v) for v in ACTION_SCALE_VALUES])
-        ax.set_xlabel("sample_every")
-        if i == 0:
+            image_handle = ax.imshow(grid, origin="lower", aspect="auto", cmap=cmap, vmin=vmin_local, vmax=vmax_local)
+            ax.set_title(title)
+            ax.set_xticks(range(len(SAMPLE_EVERY_VALUES)))
+            ax.set_xticklabels([str(v) for v in SAMPLE_EVERY_VALUES])
+            ax.set_yticks(range(len(ACTION_SCALE_VALUES)))
+            ax.set_yticklabels([str(v) for v in ACTION_SCALE_VALUES])
+            ax.set_xlabel("frames_every")
             ax.set_ylabel("action_scale")
+            cbar = fig.colorbar(image_handle, ax=ax, fraction=0.046, pad=0.04)
+            # cbar.set_label(f"Final reward ({args.metric})")
 
-        cbar = fig.colorbar(image_handle, ax=ax, fraction=0.05, pad=0.04)
-        cbar.set_label(f"Final reward ({args.metric})")
+    for row, algorithm in enumerate(ALG_ROWS):
+        row_left = axes[row, 0].get_position().x0
+        row_right = axes[row, len(ENV_COLS) - 1].get_position().x1
+        row_top = max(axes[row, col].get_position().y1 for col in range(len(ENV_COLS)))
+        fig.text(
+            (row_left + row_right) / 2.0,
+            row_top + 0.025,
+            algorithm.upper(),
+            ha="center",
+            va="bottom",
+            fontsize=16,
+            fontweight="bold",
+        )
 
-    fig.suptitle("SAC final reward heatmaps by environment", fontsize=14)
-    plt.savefig(args.out, dpi=160)
+    fig.suptitle("Final reward heatmaps by environment and algorithm", fontsize=20, y=0.985)
+    plt.savefig(args.out, dpi=200)
     plt.close(fig)
     print(f"Saved figure to {args.out}")
 

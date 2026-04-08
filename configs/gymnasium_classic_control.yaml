@@ -1,22 +1,24 @@
-# Shadow Dexterous Hand — continuous touch sensors (Gymnasium-Robotics).
-# Swap env.robotics_env_id for egg or pen variants:
-#   HandManipulateEgg_ContinuousTouchSensors-v1
-#   HandManipulatePen_ContinuousTouchSensors-v1
-algorithm: sac
+# Gymnasium classic control preset (PPO-focused).
+# Set env.gym_env_id to one of:
+#   Acrobot-v1
+#   CartPole-v1
+#   MountainCar-v0
+algorithm: ppo
 total_timesteps: 500000
 sample_every: 1
 device: cuda:2
 seed: 0
 reward_scale: 1.0
 eval_episodes: 10
-checkpoint_dir: runs/robotics_shadow/checkpoints
-video_dir: runs/robotics_shadow/videos
+checkpoint_dir: runs/gymnasium_classic_control/checkpoints
+video_dir: runs/gymnasium_classic_control/videos
 
 env:
-  suite: robotics
-  robotics_env_id: HandManipulateBlock_ContinuousTouchSensors-v1
-  gym_env_id: null
-  num_envs: 1
+  benchmark: MT10
+  suite: gymnasium
+  robotics_env_id: null
+  gym_env_id: CartPole-v1
+  num_envs: 4
   seed: 0
   action_scale: 1.0
   normalize_observations: false
@@ -34,25 +36,26 @@ sac:
   tau: 0.005
   alpha: 0.2
   auto_alpha: true
+  target_entropy: null
   buffer_capacity: 1000000
-  batch_size: 512
+  batch_size: 256
   warmup_steps: 5000
   updates_per_step: 1
-  policy_frequency: 1
+  policy_frequency: 2
   target_network_frequency: 1
 
 ppo:
-  lr: 0.0003
+  lr: 0.00025
   gamma: 0.99
   gae_lambda: 0.95
   clip_range: 0.2
-  ent_coef: 0.0
+  ent_coef: 0.01
   vf_coef: 0.5
   max_grad_norm: 0.5
-  n_steps: 2048
-  n_epochs: 10
-  minibatch_size: 512
-  anneal_lr: false
+  n_steps: 128
+  n_epochs: 4
+  minibatch_size: 128
+  anneal_lr: true
   norm_adv: true
   clip_vloss: true
   target_kl: null
@@ -63,8 +66,8 @@ logging:
   log_interval: 100
   eval_interval: 20000
   checkpoint_interval: 50000
-  log_train_metrics: [loss_critic, loss_actor, alpha, q_gap]
+  log_train_metrics: [loss_policy, loss_value, entropy, approx_kl]
   log_eval_metrics: [success_rate, episode_return_mean]
   save_plots: true
-  plot_dir: runs/robotics_shadow/plots
-  history_csv: runs/robotics_shadow/history.csv
+  plot_dir: runs/gymnasium_classic_control/plots
+  history_csv: runs/gymnasium_classic_control/history.csv

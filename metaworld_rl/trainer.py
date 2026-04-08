@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 import torch
 import wandb
+from gymnasium import spaces
 
 from metaworld_rl.agents.ppo import PpoAgent
 from metaworld_rl.agents.sac import SacAgent
@@ -34,27 +35,47 @@ class Trainer:
         self.env = make_vec_env(cfg.env)
         self.num_envs = self.env.num_envs
         obs_dim = int(np.prod(self.env.single_observation_space.shape))
-        act_dim = int(np.prod(self.env.single_action_space.shape))
+        action_space = self.env.single_action_space
+        if isinstance(action_space, spaces.Box):
+            self.action_space_type = "continuous"
+            act_dim = int(np.prod(action_space.shape))
+        elif isinstance(action_space, spaces.Discrete):
+            self.action_space_type = "discrete"
+            act_dim = int(action_space.n)
+        else:
+            raise ValueError(f"Unsupported action space type: {type(action_space).__name__}")
         self.act_dim = act_dim
         self.sample_every = max(1, int(cfg.sample_every))
         self.algorithm = cfg.algorithm
         if self.algorithm == "sac":
             self.agent: SacAgent | PpoAgent = SacAgent(
-                obs_dim, act_dim, cfg.model, cfg.sac, self.device
+                obs_dim,
+                act_dim,
+                cfg.model,
+                cfg.sac,
+                self.device,
+                action_space_type=self.action_space_type,
             )
             self.replay = ReplayBuffer(
                 obs_dim,
-                act_dim,
+                1 if self.action_space_type == "discrete" else act_dim,
                 cfg.sac.buffer_capacity,
                 self.device,
             )
         else:
-            self.agent = PpoAgent(obs_dim, act_dim, cfg.model, cfg.ppo, self.device)
+            self.agent = PpoAgent(
+                obs_dim,
+                act_dim,
+                cfg.model,
+                cfg.ppo,
+                self.device,
+                action_space_type=self.action_space_type,
+            )
             self.rollout = RolloutBuffer(
                 cfg.ppo.n_steps,
                 self.num_envs,
                 obs_dim,
-                act_dim,
+                1 if self.action_space_type == "discrete" else act_dim,
                 self.device,
             )
         self.global_sim_step = 0
@@ -130,7 +151,8 @@ class Trainer:
     def _train_step_sac(self, obs: np.ndarray) -> None:
         cfg = self.cfg
         start_obs = np.zeros_like(obs)
-        start_actions = np.zeros((self.num_envs, self.act_dim), dtype=np.float32)
+        action_width = 1 if self.action_space_type == "discrete" else self.act_dim
+        start_actions = np.zeros((self.num_envs, action_width), dtype=np.float32)
         reward_sums = np.zeros((self.num_envs,), dtype=np.float32)
         span_steps = np.zeros((self.num_envs,), dtype=np.int32)
         segment_active = np.zeros((self.num_envs,), dtype=bool)
@@ -139,22 +161,29 @@ class Trainer:
         while True:
             obs_t = torch.as_tensor(obs, dtype=torch.float32, device=self.device)
             if self.global_sim_step < cfg.sac.warmup_steps:
-                actions = np.stack(
-                    [self.env.single_action_space.sample() for _ in range(self.num_envs)]
-                ).astype(np.float32)
+                sampled = [self.env.single_action_space.sample() for _ in range(self.num_envs)]
+                if self.action_space_type == "continuous":
+                    actions = np.stack(sampled).astype(np.float32)
+                else:
+                    actions = np.asarray(sampled, dtype=np.int64)
             else:
                 with torch.no_grad():
                     actions = self.agent.act(obs_t, deterministic=False).cpu().numpy()
+                    if self.action_space_type == "discrete":
+                        actions = actions.astype(np.int64)
 
             new_segment = ~segment_active
             if np.any(new_segment):
                 start_obs[new_segment] = obs[new_segment]
-                start_actions[new_segment] = actions[new_segment]
+                if self.action_space_type == "continuous":
+                    start_actions[new_segment] = actions[new_segment]
+                else:
+                    start_actions[new_segment, 0] = actions[new_segment].astype(np.float32)
                 reward_sums[new_segment] = 0.0
                 span_steps[new_segment] = 0
                 segment_active[new_segment] = True
 
-            next_obs, rewards, term, trunc, _ = self.env.step(actions)
+            next_obs, rewards, term, trunc, infos = self.env.step(actions)
             rewards = rewards * cfg.reward_scale
             dones = np.logical_or(term, trunc)
 
@@ -166,11 +195,19 @@ class Trainer:
             if np.any(commit_mask):
                 idx = np.where(commit_mask)[0]
                 discounts = np.power(cfg.sac.gamma, span_steps[idx]).astype(np.float32)
+                next_obs_commit = np.array(next_obs[idx], copy=True)
+                if np.any(trunc[idx]):
+                    # Gymnasium vector env can provide terminal observations for truncations.
+                    finals = infos.get("final_observation") if isinstance(infos, dict) else None
+                    if finals is not None:
+                        for local_i, env_i in enumerate(idx):
+                            if trunc[env_i] and finals[env_i] is not None:
+                                next_obs_commit[local_i] = finals[env_i]
                 self.replay.add_batch(
                     start_obs[idx],
                     start_actions[idx],
                     reward_sums[idx],
-                    next_obs[idx],
+                    next_obs_commit,
                     dones[idx].astype(np.float32),
                     discounts,
                 )
@@ -208,11 +245,16 @@ class Trainer:
     def _train_phase_ppo(self, obs: np.ndarray) -> np.ndarray:
         cfg = self.cfg
         self.rollout.reset_storage()
+        total_expected = cfg.total_timesteps
+        if cfg.ppo.anneal_lr and total_expected > 0:
+            frac = max(0.0, 1.0 - (self.global_sim_step / float(total_expected)))
+            self.agent.set_lr(cfg.ppo.lr * frac)
         per_env_commits = np.zeros((self.num_envs,), dtype=np.int32)
         target_commits = int(cfg.ppo.n_steps)
 
         start_obs = np.zeros_like(obs)
-        start_actions = np.zeros((self.num_envs, self.act_dim), dtype=np.float32)
+        action_width = 1 if self.action_space_type == "discrete" else self.act_dim
+        start_actions = np.zeros((self.num_envs, action_width), dtype=np.float32)
         start_log_probs = np.zeros((self.num_envs,), dtype=np.float32)
         start_values = np.zeros((self.num_envs,), dtype=np.float32)
         reward_sums = np.zeros((self.num_envs,), dtype=np.float32)
@@ -224,20 +266,29 @@ class Trainer:
             with torch.no_grad():
                 actions, log_probs, _, values = self.agent.act(obs_t, deterministic=False)
             actions_np = actions.cpu().numpy()
+            if self.action_space_type == "discrete":
+                actions_step = actions_np.astype(np.int64)
+            else:
+                actions_step = actions_np
             lp_np = log_probs.cpu().numpy()
             val_np = values.cpu().numpy()
 
             new_segment = ~segment_active
             if np.any(new_segment):
                 start_obs[new_segment] = obs[new_segment]
-                start_actions[new_segment] = actions_np[new_segment]
+                if self.action_space_type == "continuous":
+                    start_actions[new_segment] = actions_np[new_segment]
+                else:
+                    start_actions[new_segment, 0] = actions_step[new_segment].astype(
+                        np.float32
+                    )
                 start_log_probs[new_segment] = lp_np[new_segment]
                 start_values[new_segment] = val_np[new_segment]
                 reward_sums[new_segment] = 0.0
                 span_steps[new_segment] = 0
                 segment_active[new_segment] = True
 
-            next_obs, rewards, term, trunc, _ = self.env.step(actions_np)
+            next_obs, rewards, term, trunc, _ = self.env.step(actions_step)
             rewards = rewards * cfg.reward_scale
             dones = np.logical_or(term, trunc)
 
@@ -284,8 +335,13 @@ class Trainer:
         )
         adv_t = torch.as_tensor(adv, dtype=torch.float32, device=self.device)
         ret_t = torch.as_tensor(ret, dtype=torch.float32, device=self.device)
+        old_v_t = torch.as_tensor(
+            self.rollout.values[:n], dtype=torch.float32, device=self.device
+        )
+        if self.action_space_type == "discrete":
+            act_t = act_t.long()
 
-        metrics = self.agent.update(obs_t, act_t, old_lp, adv_t, ret_t)
+        metrics = self.agent.update(obs_t, act_t, old_lp, adv_t, ret_t, old_v_t)
         row = {
             "step": float(self.global_sim_step),
             "sim_step": float(self.global_sim_step),

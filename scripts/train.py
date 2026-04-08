@@ -20,6 +20,8 @@ def _run_slug(cfg: TrainConfig, benchmark_arg: str) -> str:
     """Directory / W&B segment: robotics env id or MetaWorld benchmark CLI name."""
     if cfg.env.suite == "robotics" and cfg.env.robotics_env_id:
         return cfg.env.robotics_env_id.replace("/", "_")
+    if cfg.env.suite == "gymnasium" and cfg.env.gym_env_id:
+        return cfg.env.gym_env_id.replace("/", "_")
     return benchmark_arg
 
 
@@ -32,9 +34,10 @@ def main() -> None:
         help="YAML config path (optional; defaults to built-in TrainConfig)",
     )
     p.add_argument("--algorithm", choices=["sac", "ppo"], default="sac")
-    p.add_argument("--benchmark", type=str, default="MT10", help="MetaWorld only; ignored when env.suite is robotics (YAML or --suite)")
-    p.add_argument("--suite", choices=["metaworld", "robotics"], default=None, help="Override env.suite (default: from config)")
+    p.add_argument("--benchmark", type=str, default="MT10", help="MetaWorld only; ignored when env.suite is not metaworld")
+    p.add_argument("--suite", choices=["metaworld", "robotics", "gymnasium"], default=None, help="Override env.suite (default: from config)")
     p.add_argument("--robotics-env-id", type=str, default=None, help="Override env.robotics_env_id when suite is robotics")
+    p.add_argument("--gym-env-id", type=str, default=None, help="Override env.gym_env_id when suite is gymnasium")
     p.add_argument("--total-timesteps", type=int, default=None)
     p.add_argument("--device", type=str, default="cuda:2")
     p.add_argument("--num-envs", type=int, default=None, help="Parallel envs (ignored for MT10)")
@@ -57,6 +60,8 @@ def main() -> None:
         cfg.env.suite = args.suite
     if args.robotics_env_id is not None:
         cfg.env.robotics_env_id = args.robotics_env_id
+    if args.gym_env_id is not None:
+        cfg.env.gym_env_id = args.gym_env_id
     if args.benchmark is not None and cfg.env.suite == "metaworld":
         cfg.env.benchmark = name_to_env_name(args.benchmark)
     if args.total_timesteps is not None:

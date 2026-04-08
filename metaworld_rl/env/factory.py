@@ -1,4 +1,4 @@
-"""Build vectorized training environments from EnvConfig (MetaWorld or Gymnasium-Robotics)."""
+"""Build vectorized training environments from EnvConfig."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import functools
 import warnings
 
 import gymnasium as gym
-import metaworld
 from gymnasium.vector import VectorEnv
 
 from metaworld_rl.config import EnvConfig
@@ -21,11 +20,18 @@ MT10_NUM_ENVS = 10
 
 def _make_single_task_env(task_name: str, seed: int | None, **mw_kwargs) -> gym.Env:
     """One MT1-style env (single task family, multiple goals)."""
+    import metaworld
+
     return metaworld.make_mt_envs(task_name, seed=seed, num_tasks=1, **mw_kwargs)
 
 
 def _make_robotics_env(env_id: str, seed: int | None, **make_kwargs) -> gym.Env:
     """Single Gymnasium-Robotics env (seed applied on first reset by vector env)."""
+    return gym.make(env_id, **make_kwargs)
+
+
+def _make_gym_env(env_id: str, seed: int | None, **make_kwargs) -> gym.Env:
+    """Single Gymnasium environment (seed applied on first reset by vector env)."""
     return gym.make(env_id, **make_kwargs)
 
 
@@ -66,6 +72,30 @@ def make_vec_env(cfg: EnvConfig) -> VectorEnv:
         if cfg.normalize_observations:
             vec = VectorObservationNormalize(vec)
         return vec
+    if cfg.suite == "gymnasium":
+        if not cfg.gym_env_id:
+            raise ValueError("env.gym_env_id is required when env.suite is 'gymnasium'")
+        make_kwargs: dict = {}
+        if cfg.max_episode_steps is not None:
+            make_kwargs["max_episode_steps"] = cfg.max_episode_steps
+        if cfg.render_mode is not None:
+            make_kwargs["render_mode"] = cfg.render_mode
+        fns = [
+            functools.partial(
+                _make_gym_env,
+                cfg.gym_env_id,
+                cfg.seed + i,
+                **make_kwargs,
+            )
+            for i in range(cfg.num_envs)
+        ]
+        vec = gym.vector.SyncVectorEnv(fns)
+        assert isinstance(vec, VectorEnv)
+        if cfg.action_scale != 1.0:
+            vec = VectorActionScale(vec, cfg.action_scale)
+        if cfg.normalize_observations:
+            vec = VectorObservationNormalize(vec)
+        return vec
 
     mw_kwargs: dict = {}
     if cfg.max_episode_steps is not None:
@@ -78,6 +108,8 @@ def make_vec_env(cfg: EnvConfig) -> VectorEnv:
         mw_kwargs["camera_name"] = cfg.camera_name
 
     if cfg.benchmark.upper() == "MT10":
+        import metaworld
+
         if cfg.num_envs != MT10_NUM_ENVS:
             warnings.warn(
                 f"MT10 uses exactly {MT10_NUM_ENVS} parallel envs; ignoring num_envs={cfg.num_envs}.",

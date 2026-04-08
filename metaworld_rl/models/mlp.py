@@ -6,7 +6,8 @@ from typing import Literal, Sequence
 
 import torch
 import torch.nn as nn
-from torch.distributions import Normal
+import torch.nn.functional as F
+from torch.distributions import Categorical, Normal
 
 
 def build_mlp(
@@ -98,8 +99,8 @@ class QNetwork(nn.Module):
         return self.net(x)
 
 
-class SharedActorCritic(nn.Module):
-    """Shared trunk + policy head (Gaussian) + value head (PPO)."""
+class DiscreteQNetwork(nn.Module):
+    """Q(s, .) that outputs one value per discrete action."""
 
     def __init__(
         self,
@@ -109,33 +110,107 @@ class SharedActorCritic(nn.Module):
         activation: Literal["relu", "tanh"] = "relu",
     ) -> None:
         super().__init__()
+        self.net = build_mlp(obs_dim, hidden_dims, activation, output_dim=act_dim)
+
+    def forward(self, obs: torch.Tensor) -> torch.Tensor:
+        return self.net(obs)
+
+
+class DiscretePolicy(nn.Module):
+    """Categorical policy over discrete actions."""
+
+    def __init__(
+        self,
+        obs_dim: int,
+        act_dim: int,
+        hidden_dims: Sequence[int],
+        activation: Literal["relu", "tanh"] = "relu",
+    ) -> None:
+        super().__init__()
+        self.net = build_mlp(obs_dim, hidden_dims, activation, output_dim=act_dim)
+
+    def logits(self, obs: torch.Tensor) -> torch.Tensor:
+        return self.net(obs)
+
+    def dist(self, obs: torch.Tensor) -> Categorical:
+        return Categorical(logits=self.logits(obs))
+
+    def sample(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        dist = self.dist(obs)
+        action = dist.sample()
+        log_prob = dist.log_prob(action).unsqueeze(-1)
+        return action, log_prob
+
+    def greedy_action(self, obs: torch.Tensor) -> torch.Tensor:
+        logits = self.logits(obs)
+        return torch.argmax(logits, dim=-1)
+
+    def action_probs(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        logits = self.logits(obs)
+        probs = F.softmax(logits, dim=-1)
+        log_probs = F.log_softmax(logits, dim=-1)
+        return probs, log_probs
+
+
+class SharedActorCritic(nn.Module):
+    """Shared trunk + policy head (Gaussian) + value head (PPO)."""
+
+    def __init__(
+        self,
+        obs_dim: int,
+        act_dim: int,
+        hidden_dims: Sequence[int],
+        activation: Literal["relu", "tanh"] = "relu",
+        action_space_type: Literal["continuous", "discrete"] = "continuous",
+    ) -> None:
+        super().__init__()
         self.trunk = mlp_factory(obs_dim, hidden_dims, activation)
         h = hidden_dims[-1]
-        self.pi_mean = nn.Linear(h, act_dim)
-        self.pi_log_std = nn.Parameter(torch.zeros(1, act_dim))
+        self.action_space_type = action_space_type
+        if action_space_type == "continuous":
+            self.pi_mean = nn.Linear(h, act_dim)
+            self.pi_log_std = nn.Parameter(torch.zeros(1, act_dim))
+        else:
+            self.pi_logits = nn.Linear(h, act_dim)
         self.v = nn.Linear(h, 1)
 
-    def forward(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward(
+        self, obs: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor]:
         x = self.trunk(obs)
-        mean = self.pi_mean(x)
-        log_std = self.pi_log_std.expand_as(mean).clamp(-20, 2)
+        if self.action_space_type == "continuous":
+            mean = self.pi_mean(x)
+            log_std = self.pi_log_std.expand_as(mean).clamp(-20, 2)
+        else:
+            mean = self.pi_logits(x)
+            log_std = None
         v = self.v(x)
         return mean, log_std, v.squeeze(-1)
 
     def get_action_and_value(
         self, obs: torch.Tensor, deterministic: bool = False
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        mean, log_std, v = self.forward(obs)
-        std = log_std.exp()
-        dist = Normal(mean, std)
-        if deterministic:
-            x_t = mean
+        mean_or_logits, log_std, v = self.forward(obs)
+        if self.action_space_type == "continuous":
+            assert log_std is not None
+            std = log_std.exp()
+            dist = Normal(mean_or_logits, std)
+            if deterministic:
+                x_t = mean_or_logits
+            else:
+                x_t = dist.rsample()
+            log_prob = dist.log_prob(x_t).sum(-1)
+            action = torch.tanh(x_t)
+            log_prob -= torch.log(1 - action.pow(2) + 1e-6).sum(-1)
+            entropy = dist.entropy().sum(-1)
         else:
-            x_t = dist.rsample()
-        log_prob = dist.log_prob(x_t).sum(-1)
-        action = torch.tanh(x_t)
-        log_prob -= torch.log(1 - action.pow(2) + 1e-6).sum(-1)
-        entropy = dist.entropy().sum(-1)
+            dist = Categorical(logits=mean_or_logits)
+            if deterministic:
+                action = torch.argmax(mean_or_logits, dim=-1)
+            else:
+                action = dist.sample()
+            log_prob = dist.log_prob(action)
+            entropy = dist.entropy()
         # v is already (B,) from forward(); do not squeeze again or B==1 becomes a scalar.
         return action, log_prob, entropy, v
 
@@ -143,13 +218,20 @@ class SharedActorCritic(nn.Module):
         self, obs: torch.Tensor, actions: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Log-prob for squashed actions (inverse tanh) + pre-tanh entropy + value."""
-        mean, log_std, v = self.forward(obs)
-        std = log_std.exp()
-        dist = Normal(mean, std)
-        eps = 1e-6
-        clipped = torch.clamp(actions, -1 + eps, 1 - eps)
-        x_t = torch.atanh(clipped)
-        log_prob = dist.log_prob(x_t).sum(-1)
-        log_prob -= torch.log(1 - actions.pow(2) + eps).sum(-1)
-        entropy = dist.entropy().sum(-1)
+        mean_or_logits, log_std, v = self.forward(obs)
+        if self.action_space_type == "continuous":
+            assert log_std is not None
+            std = log_std.exp()
+            dist = Normal(mean_or_logits, std)
+            eps = 1e-6
+            clipped = torch.clamp(actions, -1 + eps, 1 - eps)
+            x_t = torch.atanh(clipped)
+            log_prob = dist.log_prob(x_t).sum(-1)
+            log_prob -= torch.log(1 - actions.pow(2) + eps).sum(-1)
+            entropy = dist.entropy().sum(-1)
+        else:
+            dist = Categorical(logits=mean_or_logits)
+            discrete_actions = actions.long().view(-1)
+            log_prob = dist.log_prob(discrete_actions)
+            entropy = dist.entropy()
         return log_prob, entropy, v
