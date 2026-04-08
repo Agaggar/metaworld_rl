@@ -10,6 +10,15 @@ import torch.nn.functional as F
 from torch.distributions import Categorical, Normal
 
 
+def init_orthogonal_linear(
+    layer: nn.Linear, std: float = 1.0, bias_const: float = 0.0
+) -> nn.Linear:
+    """Orthogonal weight init + constant bias init."""
+    nn.init.orthogonal_(layer.weight, std)
+    nn.init.constant_(layer.bias, bias_const)
+    return layer
+
+
 def build_mlp(
     input_dim: int,
     hidden_dims: Sequence[int],
@@ -164,27 +173,37 @@ class SharedActorCritic(nn.Module):
         action_space_type: Literal["continuous", "discrete"] = "continuous",
     ) -> None:
         super().__init__()
-        self.trunk = mlp_factory(obs_dim, hidden_dims, activation)
+        self.pi_trunk = mlp_factory(obs_dim, hidden_dims, activation)
+        self.v_trunk = mlp_factory(obs_dim, hidden_dims, activation)
         h = hidden_dims[-1]
         self.action_space_type = action_space_type
         if action_space_type == "continuous":
-            self.pi_mean = nn.Linear(h, act_dim)
+            self.pi_mean = init_orthogonal_linear(nn.Linear(h, act_dim), std=0.01)
             self.pi_log_std = nn.Parameter(torch.zeros(1, act_dim))
         else:
-            self.pi_logits = nn.Linear(h, act_dim)
-        self.v = nn.Linear(h, 1)
+            self.pi_logits = init_orthogonal_linear(nn.Linear(h, act_dim), std=0.01)
+        self.v = init_orthogonal_linear(nn.Linear(h, 1), std=1.0)
+        self._init_ppo_trunks()
+
+    def _init_ppo_trunks(self) -> None:
+        # Match PPO implementation details: orthogonal init and constant bias.
+        for trunk in (self.pi_trunk, self.v_trunk):
+            for module in trunk.modules():
+                if isinstance(module, nn.Linear):
+                    init_orthogonal_linear(module, std=(2**0.5), bias_const=0.0)
 
     def forward(
         self, obs: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor]:
-        x = self.trunk(obs)
+        pi_x = self.pi_trunk(obs)
+        v_x = self.v_trunk(obs)
         if self.action_space_type == "continuous":
-            mean = self.pi_mean(x)
+            mean = self.pi_mean(pi_x)
             log_std = self.pi_log_std.expand_as(mean).clamp(-20, 2)
         else:
-            mean = self.pi_logits(x)
+            mean = self.pi_logits(pi_x)
             log_std = None
-        v = self.v(x)
+        v = self.v(v_x)
         return mean, log_std, v.squeeze(-1)
 
     def get_action_and_value(
