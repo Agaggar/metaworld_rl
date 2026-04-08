@@ -42,6 +42,7 @@ def main() -> None:
     p.add_argument("--device", type=str, default="cuda:2")
     p.add_argument("--num-envs", type=int, default=None, help="Parallel envs (ignored for MT10)")
     p.add_argument("--warmup-steps", type=int, default=5000, help="SAC random-action steps before learning")
+    p.add_argument("--seed", type=int, default=0, help="Random seed")
     p.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging")
     p.add_argument("--project", type=str, default="tester", help="Project name for Weights & Biases")
     p.add_argument("--sample-every", type=int, default=1, help="Commit one learning transition every K control steps")
@@ -72,6 +73,8 @@ def main() -> None:
         cfg.env.num_envs = args.num_envs
     if args.warmup_steps is not None:
         cfg.sac.warmup_steps = args.warmup_steps
+    if args.seed is not None:
+        cfg.seed = args.seed
     if args.wandb:
         cfg.logging.use_wandb = True
     if args.project is not None:
