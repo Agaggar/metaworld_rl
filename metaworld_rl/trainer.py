@@ -10,6 +10,7 @@ import numpy as np
 import torch
 import wandb
 from gymnasium import spaces
+from tqdm import tqdm
 
 from metaworld_rl.agents.ppo import PpoAgent
 from metaworld_rl.agents.sac import SacAgent
@@ -114,7 +115,8 @@ class Trainer:
             if self.history:
                 last = self.history[-1]
                 if self.algorithm == "ppo" or int(last["step"]) % cfg.logging.log_interval == 0:
-                    self._log_console(last)
+                    # self._log_console(last)
+                    pass
 
             while (
                 self.global_sim_step >= next_eval_step

@@ -1,6 +1,6 @@
 # Default training run — edit or pass overrides via scripts/train.py
 algorithm: sac
-total_timesteps: 500000
+total_timesteps: 1000000
 sample_every: 1
 device: cuda:2
 seed: 0
@@ -17,7 +17,7 @@ env:
   num_envs: 1
   seed: 0
   action_scale: 1.0
-  normalize_observations: false
+  normalize_observations: true
   use_one_hot_task_id: false
   max_episode_steps: null
   render_mode: null
@@ -32,28 +32,29 @@ sac:
   tau: 0.005
   alpha: 0.2
   auto_alpha: true
+  target_entropy: -2.0
   buffer_capacity: 1000000
-  batch_size: 512
+  batch_size: 256
   warmup_steps: 5000
   updates_per_step: 1
   policy_frequency: 2
   target_network_frequency: 1
 
 ppo:
-  lr: 0.0001            # ↓ Drop by 3x (from 0.0003)
+  lr: 0.0003
   gamma: 0.99
   gae_lambda: 0.95
-  clip_range: 0.1        # ↓ More conservative clipping  
-  ent_coef: 0.01         # ↑ 10x increase (from 0.001)
-  vf_coef: 0.25          # ↓ Reduce value function weight
+  clip_range: 0.2
+  ent_coef: 0.01
+  vf_coef: 0.5
   max_grad_norm: 0.5
   n_steps: 512           # ↓ 4x reduction (from 2048)
-  n_epochs: 20           # ↑ More optimization per cycle
+  n_epochs: 5
   minibatch_size: 64     # ↓ Smaller batches for more updates (512 → 64)
-  anneal_lr: false
+  anneal_lr: true
   norm_adv: true
   clip_vloss: true
-  target_kl: null
+  target_kl: 0.02
 
 logging:
   use_wandb: false

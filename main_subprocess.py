@@ -1,12 +1,13 @@
 import subprocess as sp
 
-DEVICE = "cuda:1"
-env_to_use = "gymnasium_classic_control"
-project_name = "classic_control_sweep" # metaworld standard 5 for sac and ppo: "se_as_sweep"
+DEVICE = "cuda:0"
+env_to_use = "metaworld"
+project_name = "faucet_5" # metaworld standard 5 for sac and ppo: "se_as_sweep"
 # for handed manipulation, use "handed_manip"
 
 if env_to_use == "metaworld":
-    benchmarks = ["button", "door", "drawer", "coffee", "faucet"]
+    # benchmarks = ["button", "door", "drawer", "coffee", "faucet"]
+    benchmarks = ["faucet"]
     config_to_use = "configs/default.yaml"
     suite_arg = "metaworld"
     env_arg_name = "--benchmark"
@@ -26,20 +27,20 @@ elif env_to_use == "gymnasium_classic_control":
     suite_arg = "gymnasium"
     env_arg_name = "--gym-env-id"
 elif env_to_use == "gymnasium_box2d":
-    benchmarks = ["LunarLanderContinuous-v3", "BipedalWalker-v3"]
+    benchmarks = ["LunarLanderContinuous-v3"]
     config_to_use = "configs/gymnasium_box2d.yaml"
     suite_arg = "gymnasium"
     env_arg_name = "--gym-env-id"
 else:
     raise ValueError(f"Invalid environment to use: {env_to_use}")
 
-# around 4 mins per run for classic control ppo
-# so 3 seeds, 3 action scales, 3 sample everys, 3 benchmarks = 3*3*3*3 = 81 runs
-# approximately 81*4 mins = 324 mins = 5.4 hours
-algorithms_to_use = ["sac"] # or "ppo"
+# around 3.5 mins per run for box2d ppo
+# so 3 seeds, 2 action scales, 4 sample everys, 1 benchmark = 3*2*4*1 = 24 runs
+# approximately 24*3.5 mins = 84 mins = 1.4 hours
+algorithms_to_use = ["ppo", "sac"] # or "ppo"
 num_seeds = 3
-action_scales = [1.0] # [0.25, 5.0] # 1.0, 0.1, 
-sample_everys = [1, 2] # 1, 2, 5, 10
+action_scales = [0.1, 0.25, 1.0, 5.0]
+sample_everys = [1, 2, 5, 10]
 for seed in range(num_seeds):
     for algorithm_to_use in algorithms_to_use:
         for action_scale in reversed(action_scales):

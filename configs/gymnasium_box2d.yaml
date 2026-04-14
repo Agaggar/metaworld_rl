@@ -1,8 +1,7 @@
 # Gymnasium Box2D preset (continuous control).
 # Use:
 #   LunarLanderContinuous-v3
-#   BipedalWalker-v3
-algorithm: sac
+algorithm: ppo
 total_timesteps: 500000
 sample_every: 1
 device: cuda:2
@@ -20,7 +19,7 @@ env:
   num_envs: 4
   seed: 0
   action_scale: 1.0
-  normalize_observations: false
+  normalize_observations: true
   use_one_hot_task_id: false
   max_episode_steps: null
   render_mode: null
@@ -44,20 +43,20 @@ sac:
   target_network_frequency: 1
 
 ppo:
-  lr: 0.00025
-  gamma: 0.99
-  gae_lambda: 0.95
+  lr: 0.0003
+  gamma: 0.999
+  gae_lambda: 0.98
   clip_range: 0.2
   ent_coef: 0.01
   vf_coef: 0.5
   max_grad_norm: 0.5
-  n_steps: 128
+  n_steps: 1024
   n_epochs: 4
-  minibatch_size: 128
+  minibatch_size: 64
   anneal_lr: true
   norm_adv: true
   clip_vloss: true
-  target_kl: null
+  target_kl: 0.02
 
 logging:
   use_wandb: false
